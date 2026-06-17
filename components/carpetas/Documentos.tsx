@@ -195,7 +195,7 @@ export function Documentos({ carpetaId, documentos }: DocumentosProps) {
     <div className="space-y-6">
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">1 · Documentos del proveedor</CardTitle>
+          <CardTitle className="text-base">Sección 1 · Documentos del proveedor</CardTitle>
         </CardHeader>
         <CardContent className="space-y-2">
           {SECCION_1.map((slot) => (
@@ -206,7 +206,7 @@ export function Documentos({ carpetaId, documentos }: DocumentosProps) {
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">2 · Pagos al proveedor</CardTitle>
+          <CardTitle className="text-base">Sección 2 · Pagos al proveedor</CardTitle>
         </CardHeader>
         <CardContent className="space-y-2">
           {SECCION_2.map((slot) => (
