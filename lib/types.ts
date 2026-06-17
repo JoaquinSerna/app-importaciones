@@ -125,6 +125,39 @@ export interface Carpeta {
   created_at: string;
   bl_number: string | null;
   created_by: string | null;
+  fecha_salida_real: string | null;
+}
+
+export type TipoDocumento =
+  | "foto_contacto"
+  | "proforma_invoice"
+  | "packing_list"
+  | "commercial_invoice"
+  | "instruccion_transferencia_anticipo"
+  | "instruccion_transferencia_saldo"
+  | "comprobante_pago_anticipo"
+  | "comprobante_pago_saldo"
+  | "saf"
+  | "comprobante_pago_saf"
+  | "factura_logistica"
+  | "comprobante_pago_logistica"
+  | "factura_despachante"
+  | "comprobante_pago_despachante"
+  | "despacho_aduana";
+
+export type EstadoExtraccion = "sin_procesar" | "procesando" | "extraido" | "error";
+
+export interface Documento {
+  id: string;
+  carpeta_id: string | null;
+  contenedor_id: string | null;
+  tipo: TipoDocumento;
+  file_name: string;
+  file_url: string;
+  estado: EstadoExtraccion;
+  datos_extraidos: Record<string, unknown> | null;
+  notas: string | null;
+  created_at: string;
 }
 
 export interface Sku {

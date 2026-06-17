@@ -10,7 +10,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { calcularCascada } from "@/lib/calculadora-costos";
 import { createClient } from "@/lib/supabase/server";
-import type { Carpeta, Costo, ParametrosGlobales, Sku } from "@/lib/types";
+import type { Carpeta, Costo, Documento, ParametrosGlobales, Sku } from "@/lib/types";
 
 function formatUsd(n: number) {
   return n.toLocaleString("es-AR", { style: "currency", currency: "USD", maximumFractionDigits: 2 });
@@ -34,7 +34,7 @@ export default async function CarpetaDetallePage({ params }: { params: { id: str
     notFound();
   }
 
-  const [{ data: skus }, { data: costos }, { data: parametrosSnapshot }] = await Promise.all([
+  const [{ data: skus }, { data: costos }, { data: parametrosSnapshot }, { data: documentos }] = await Promise.all([
     supabase.from("skus").select("*").eq("carpeta_id", params.id),
     supabase.from("costos").select("*").eq("carpeta_id", params.id).order("created_at"),
     supabase
@@ -42,6 +42,7 @@ export default async function CarpetaDetallePage({ params }: { params: { id: str
       .select("*")
       .eq("id", (carpeta as Carpeta).parametros_snapshot_id)
       .single(),
+    supabase.from("documentos").select("*").eq("carpeta_id", params.id).order("created_at"),
   ]);
 
   const skusList = (skus ?? []) as Sku[];
@@ -153,7 +154,7 @@ export default async function CarpetaDetallePage({ params }: { params: { id: str
         </TabsContent>
 
         <TabsContent value="documentos">
-          <Documentos carpetaId={carpetaTyped.id} costos={costosList} />
+          <Documentos carpetaId={carpetaTyped.id} documentos={(documentos ?? []) as Documento[]} />
         </TabsContent>
       </Tabs>
     </div>

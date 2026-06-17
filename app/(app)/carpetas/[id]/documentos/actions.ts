@@ -3,8 +3,9 @@
 import { revalidatePath } from "next/cache";
 
 import { extraerLiquidacionDesdePdf } from "@/lib/pdf-extractor";
+import { extraerDatosDocumento } from "@/lib/pdf-extractor-documentos";
 import { createClient } from "@/lib/supabase/server";
-import type { LiquidacionExtraida } from "@/lib/types";
+import type { Documento, LiquidacionExtraida, TipoDocumento } from "@/lib/types";
 
 const BUCKET_DOCUMENTOS = "documentos";
 
@@ -48,6 +49,82 @@ export async function subirYExtraerLiquidacion(
   revalidatePath(`/carpetas/${carpetaId}`);
 
   return { path, liquidacion };
+}
+
+/** Sube un documento de cualquier tipo, lo persiste en DB y extrae datos con IA */
+export async function subirDocumento(
+  carpetaId: string,
+  tipo: TipoDocumento,
+  formData: FormData
+): Promise<Documento> {
+  const supabase = createClient();
+  const { data: userData } = await supabase.auth.getUser();
+
+  const file = formData.get("file") as File | null;
+  if (!file) throw new Error("No se recibió ningún archivo.");
+
+  const arrayBuffer = await file.arrayBuffer();
+  const buffer = Buffer.from(arrayBuffer);
+  const path = `${carpetaId}/${tipo}/${Date.now()}-${file.name}`;
+
+  const { error: uploadError } = await supabase.storage
+    .from(BUCKET_DOCUMENTOS)
+    .upload(path, buffer, { contentType: file.type });
+  if (uploadError) throw new Error(`Error subiendo archivo: ${uploadError.message}`);
+
+  const { data: urlData } = supabase.storage.from(BUCKET_DOCUMENTOS).getPublicUrl(path);
+
+  // Crear registro en DB
+  const { data: doc, error: dbError } = await supabase
+    .from("documentos")
+    .insert({
+      carpeta_id: carpetaId,
+      tipo,
+      file_name: file.name,
+      file_url: urlData.publicUrl,
+      estado: "procesando",
+      created_by: userData?.user?.id ?? null,
+    })
+    .select()
+    .single();
+  if (dbError || !doc) throw new Error(`Error guardando documento: ${dbError?.message}`);
+
+  // Extraer datos con IA
+  try {
+    const datos = await extraerDatosDocumento(buffer, tipo, file.type);
+    await supabase
+      .from("documentos")
+      .update({ estado: "extraido", datos_extraidos: datos })
+      .eq("id", doc.id);
+
+    // Si es comprobante de pago, actualizar fechas/montos en la carpeta
+    if (datos && tipo === "comprobante_pago_anticipo") {
+      await supabase.from("carpetas").update({
+        fecha_pago_anticipo: (datos.fecha as string) ?? null,
+        monto_anticipo_usd: (datos.monto as number) ?? null,
+      }).eq("id", carpetaId);
+    }
+    if (datos && tipo === "comprobante_pago_saldo") {
+      await supabase.from("carpetas").update({
+        fecha_pago_saldo: (datos.fecha as string) ?? null,
+        monto_saldo_usd: (datos.monto as number) ?? null,
+      }).eq("id", carpetaId);
+    }
+
+    revalidatePath(`/carpetas/${carpetaId}`);
+    return { ...doc, estado: "extraido", datos_extraidos: datos } as Documento;
+  } catch {
+    await supabase.from("documentos").update({ estado: "error" }).eq("id", doc.id);
+    revalidatePath(`/carpetas/${carpetaId}`);
+    return { ...doc, estado: "error" } as Documento;
+  }
+}
+
+/** Elimina un documento (archivo + registro DB) */
+export async function eliminarDocumento(carpetaId: string, documentoId: string) {
+  const supabase = createClient();
+  await supabase.from("documentos").delete().eq("id", documentoId);
+  revalidatePath(`/carpetas/${carpetaId}`);
 }
 
 export interface ConfirmarActualizacionCostoInput {
