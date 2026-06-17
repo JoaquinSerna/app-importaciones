@@ -65,11 +65,12 @@ export function SimuladorForm({ parametros, proveedores, ncms }: SimuladorFormPr
       fobTotalUsd: fob,
       cbmTotal: cbmTotal ? parseFloat(cbmTotal) : undefined,
       pesoTotalKg: pesoTotalKg ? parseFloat(pesoTotalKg) : undefined,
+      tipoContenedor: modalidad,
       ncm: ncmSeleccionado.codigo_ncm,
       fleteInternacionalUsd: fleteManual ? parseFloat(fleteManual) : undefined,
       ncmArancel: ncmSeleccionado,
     });
-  }, [parametros, fobTotalUsd, cbmTotal, pesoTotalKg, ncmSeleccionado, fleteManual]);
+  }, [parametros, fobTotalUsd, cbmTotal, pesoTotalKg, modalidad, ncmSeleccionado, fleteManual]);
 
   if (!parametros) {
     return (
@@ -114,6 +115,7 @@ export function SimuladorForm({ parametros, proveedores, ncms }: SimuladorFormPr
 
   return (
     <div className="grid gap-6 lg:grid-cols-2">
+      {/* Formulario de entrada */}
       <Card>
         <CardHeader>
           <CardTitle>Datos de la simulación</CardTitle>
@@ -190,7 +192,14 @@ export function SimuladorForm({ parametros, proveedores, ncms }: SimuladorFormPr
             </div>
           </div>
 
-          {/* NCM select — requerido */}
+          {resultado && (
+            <p className="text-xs text-muted-foreground">
+              Cantidad de contenedores estimada:{" "}
+              <span className="font-medium text-foreground">{resultado.cantContenedores}</span>
+              {" "}(basado en CBM/peso y tipo {modalidad})
+            </p>
+          )}
+
           <div className="space-y-2">
             <Label htmlFor="ncm">Posición arancelaria (NCM) *</Label>
             <Select value={ncmId} onValueChange={setNcmId}>
@@ -212,7 +221,6 @@ export function SimuladorForm({ parametros, proveedores, ncms }: SimuladorFormPr
             )}
           </div>
 
-          {/* Aranceles del NCM seleccionado — readonly */}
           {ncmSeleccionado && (
             <div className="rounded-md border bg-muted/40 p-3 space-y-1 text-sm">
               <p className="font-medium text-xs text-muted-foreground uppercase tracking-wide mb-2">
@@ -241,12 +249,18 @@ export function SimuladorForm({ parametros, proveedores, ncms }: SimuladorFormPr
                     <span>{ncmSeleccionado.iibb_pct}%</span>
                   </>
                 )}
+                {ncmSeleccionado.aplica_tasa_estadistica && (
+                  <>
+                    <span className="text-muted-foreground">Tasa estadística:</span>
+                    <span>{ncmSeleccionado.tasa_estadistica_pct}%</span>
+                  </>
+                )}
               </div>
             </div>
           )}
 
           <div className="space-y-2">
-            <Label htmlFor="flete">Flete manual (USD, opcional)</Label>
+            <Label htmlFor="flete">Flete internacional manual (USD, opcional)</Label>
             <Input
               id="flete"
               type="number"
@@ -264,6 +278,7 @@ export function SimuladorForm({ parametros, proveedores, ncms }: SimuladorFormPr
         </CardContent>
       </Card>
 
+      {/* Cascada de costos */}
       <Card>
         <CardHeader>
           <CardTitle>Cascada de costos estimada</CardTitle>
@@ -274,24 +289,46 @@ export function SimuladorForm({ parametros, proveedores, ncms }: SimuladorFormPr
               Ingresá el FOB total y seleccioná un NCM para ver el cálculo.
             </p>
           ) : (
-            <dl className="space-y-2 text-sm">
+            <dl className="space-y-1 text-sm">
+              <Seccion label="Valor internacional" />
               <Fila label="FOB" valor={resultado.fob} />
-              <Fila label="Flete" valor={resultado.flete} />
-              <Fila label="Seguro" valor={resultado.seguro} />
+              <Fila label="Flete internacional" valor={resultado.fleteInternacional} indent />
+              <Fila label="Peak Season" valor={resultado.peakSeason} indent />
+              <Fila label="Seguro" valor={resultado.seguro} indent />
               <Fila label="CIF" valor={resultado.cif} destacado />
-              <Fila label="Derechos de importación" valor={resultado.derechosImportacion} />
-              <Fila label="Tasa estadística" valor={resultado.tasaEstadistica} />
+
+              <div className="pt-2" />
+              <Seccion label="Impuestos aduaneros" />
+              <Fila label="Derechos de importación" valor={resultado.derechosImportacion} indent />
+              <Fila label="Tasa estadística" valor={resultado.tasaEstadistica} indent />
               <Fila label="Base imponible IVA" valor={resultado.baseImponibleIva} destacado />
-              <Fila label="IVA" valor={resultado.iva} />
-              <Fila label="IVA adicional" valor={resultado.ivaAdicional} />
-              <Fila label="Anticipo ganancias" valor={resultado.anticipoGanancias} />
-              <Fila label="IIBB" valor={resultado.iibb} />
-              <Fila label="Honorarios despachante" valor={resultado.honorariosDespachante} />
-              <Fila label="Gastos bancarios" valor={resultado.gastosBancarios} />
-              <hr className="my-2" />
+              <Fila label="IVA" valor={resultado.iva} indent />
+              <Fila label="IVA adicional" valor={resultado.ivaAdicional} indent />
+              <Fila label="Anticipo ganancias" valor={resultado.anticipoGanancias} indent />
+              <Fila label="IIBB" valor={resultado.iibb} indent />
+              <Fila label="Subtotal impuestos" valor={resultado.subtotalImpuestosUsd} destacado />
+
+              <div className="pt-2" />
+              <Seccion label="Gastos locales" />
+              <Fila label="THC" valor={resultado.thc} indent />
+              <Fila label="Flete local" valor={resultado.fleteLocal} indent />
+              <Fila label="TOLL Importación" valor={resultado.tollImportacion} indent />
+              <Fila
+                label={`Depósito fiscal (× ${resultado.cantContenedores} cont.)`}
+                valor={resultado.depositoFiscal}
+                indent
+              />
+              <Fila label="Digitalización de despacho" valor={resultado.digitalizacionDespacho} indent />
+              <Fila label="Gastos operativos" valor={resultado.gastosOperativos} indent />
+              <Fila label="Tramitaciones" valor={resultado.tramitaciones} indent />
+              <Fila label="Honorarios despachante" valor={resultado.honorariosDespachante} indent />
+              <Fila label="Gastos bancarios" valor={resultado.gastosBancarios} indent />
+              <Fila label="Subtotal gastos locales" valor={resultado.subtotalGastosLocalesUsd} destacado />
+
+              <div className="border-t my-3" />
               <Fila label="Total costos (USD)" valor={resultado.totalCostosUsd} destacado />
               <Fila label="Costo total (USD)" valor={resultado.costoTotalUsd} destacado />
-              <div className="flex justify-between pt-2 text-muted-foreground">
+              <div className="flex justify-between pt-1 text-muted-foreground">
                 <span>Costo total (ARS)</span>
                 <span>{formatArs(resultado.costoTotalArs)}</span>
               </div>
@@ -303,11 +340,32 @@ export function SimuladorForm({ parametros, proveedores, ncms }: SimuladorFormPr
   );
 }
 
-function Fila({ label, valor, destacado }: { label: string; valor: number; destacado?: boolean }) {
+function Seccion({ label }: { label: string }) {
   return (
-    <div className={`flex justify-between ${destacado ? "font-semibold" : ""}`}>
-      <span>{label}</span>
-      <span>{formatUsd(valor)}</span>
+    <div className="pt-1 pb-0.5">
+      <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{label}</span>
+    </div>
+  );
+}
+
+function Fila({
+  label,
+  valor,
+  destacado,
+  indent,
+}: {
+  label: string;
+  valor: number;
+  destacado?: boolean;
+  indent?: boolean;
+}) {
+  if (valor === 0 && !destacado) return null;
+  return (
+    <div
+      className={`flex justify-between ${destacado ? "font-semibold" : "text-muted-foreground"} ${indent ? "pl-3" : ""}`}
+    >
+      <span className={destacado ? "text-foreground" : ""}>{label}</span>
+      <span className={destacado ? "text-foreground" : ""}>{formatUsd(valor)}</span>
     </div>
   );
 }

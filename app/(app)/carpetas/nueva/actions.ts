@@ -71,6 +71,7 @@ export async function crearCarpetaDesdeSimulacion(input: CrearCarpetaInput) {
     fobTotalUsd: input.fobTotalUsd,
     cbmTotal: input.cbmTotal,
     pesoTotalKg: input.pesoTotalKg,
+    tipoContenedor: input.modalidad,
     ncm: input.ncm,
     fleteInternacionalUsd: input.fleteInternacionalUsd,
     ncmArancel: input.ncmArancel ?? null,

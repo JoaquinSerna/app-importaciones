@@ -35,9 +35,18 @@ export interface Profile {
 
 export interface ParametrosGlobales {
   id: string;
+  // Transporte marítimo/aéreo
   flete_internacional_usd: number;
-  gasto_terminal_usd: number;
+  peak_season_usd: number;
+  // Gastos locales fijos por operación
+  thc_usd: number;
   flete_interno_usd: number;
+  toll_importacion_usd: number;
+  gasto_terminal_usd: number; // depósito fiscal — se multiplica por cant. contenedores
+  digitalizacion_usd: number;
+  gastos_operativos_usd: number;
+  tramitaciones_usd: number;
+  // Porcentuales
   seguro_pct: number;
   honorarios_despachante_pct: number;
   honorarios_despachante_minimo_usd: number;

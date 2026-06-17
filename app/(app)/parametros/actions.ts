@@ -1,13 +1,21 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-
 import { createClient } from "@/lib/supabase/server";
 
 export interface CrearParametrosInput {
+  // Marítimo
   fleteInternacionalUsd: number;
-  gastoTerminalUsd: number;
+  peakSeasonUsd: number;
+  // Gastos locales
+  thcUsd: number;
   fleteInternoUsd: number;
+  tollImportacionUsd: number;
+  gastoTerminalUsd: number; // depósito fiscal por contenedor
+  digitalizacionUsd: number;
+  gastosOperativosUsd: number;
+  tramitacionesUsd: number;
+  // Porcentuales
   seguroPct: number;
   honorariosDespachantePct: number;
   honorariosDespachanteMinimoUsd: number;
@@ -15,11 +23,6 @@ export interface CrearParametrosInput {
   gastosBancariosPct: number;
 }
 
-/**
- * Inserta una nueva versión de parametros_globales. NUNCA se hace UPDATE
- * sobre filas existentes: cada cambio crea una fila nueva, preservando el
- * historial completo y los snapshots ya fijados en carpetas existentes.
- */
 export async function crearVersionParametros(input: CrearParametrosInput) {
   const supabase = createClient();
 
@@ -37,8 +40,14 @@ export async function crearVersionParametros(input: CrearParametrosInput) {
 
   const { error } = await supabase.from("parametros_globales").insert({
     flete_internacional_usd: input.fleteInternacionalUsd,
-    gasto_terminal_usd: input.gastoTerminalUsd,
+    peak_season_usd: input.peakSeasonUsd,
+    thc_usd: input.thcUsd,
     flete_interno_usd: input.fleteInternoUsd,
+    toll_importacion_usd: input.tollImportacionUsd,
+    gasto_terminal_usd: input.gastoTerminalUsd,
+    digitalizacion_usd: input.digitalizacionUsd,
+    gastos_operativos_usd: input.gastosOperativosUsd,
+    tramitaciones_usd: input.tramitacionesUsd,
     seguro_pct: input.seguroPct,
     honorarios_despachante_pct: input.honorariosDespachantePct,
     honorarios_despachante_minimo_usd: input.honorariosDespachanteMinimoUsd,
