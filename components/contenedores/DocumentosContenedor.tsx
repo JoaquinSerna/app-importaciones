@@ -274,19 +274,21 @@ export function DocumentosContenedor({ contenedorId, documentos }: DocumentosCon
           </CardHeader>
           <CardContent>
             <div className="grid grid-cols-2 gap-2 text-sm sm:grid-cols-3">
-              {[
-                ["FOB USD", totales.fob_usd],
-                ["Flete USD", totales.flete_usd],
-                ["CIF USD", totales.cif_usd],
-                ["Derechos ARS", totales.derechos_importacion_ars],
-                ["Tasa Est. ARS", totales.tasa_estadistica_ars],
-                ["IVA ARS", totales.iva_ars],
-                ["IVA Adic. ARS", totales.iva_adicional_ars],
-                ["Ganancias ARS", totales.ganancias_ars],
-                ["Total tributos ARS", totales.total_tributos_ars],
-              ].map(([label, val]) =>
+              {(
+                [
+                  ["FOB USD", totales.fob_usd],
+                  ["Flete USD", totales.flete_usd],
+                  ["CIF USD", totales.cif_usd],
+                  ["Derechos ARS", totales.derechos_importacion_ars],
+                  ["Tasa Est. ARS", totales.tasa_estadistica_ars],
+                  ["IVA ARS", totales.iva_ars],
+                  ["IVA Adic. ARS", totales.iva_adicional_ars],
+                  ["Ganancias ARS", totales.ganancias_ars],
+                  ["Total tributos ARS", totales.total_tributos_ars],
+                ] as [string, unknown][]
+              ).map(([label, val]) =>
                 val != null ? (
-                  <div key={String(label)}>
+                  <div key={label}>
                     <p className="text-xs text-muted-foreground">{label}</p>
                     <p className="font-medium">
                       {Number(val).toLocaleString("es-AR", { maximumFractionDigits: 2 })}
