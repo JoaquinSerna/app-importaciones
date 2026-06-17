@@ -24,7 +24,11 @@ interface SimuladorFormProps {
   ncms: NcmArancel[];
 }
 
-const MODALIDADES: TipoContenedor[] = ["FCL_20", "FCL_40", "FCL_40HC", "LCL", "AEREO"];
+const MODALIDADES: { value: TipoContenedor; label: string }[] = [
+  { value: "40HQ", label: "40HQ" },
+  { value: "20HQ", label: "20HQ" },
+  { value: "AEREO", label: "Aéreo" },
+];
 
 function formatUsd(n: number) {
   return n.toLocaleString("es-AR", { style: "currency", currency: "USD", maximumFractionDigits: 2 });
@@ -43,7 +47,7 @@ export function SimuladorForm({ parametros, proveedores, ncms }: SimuladorFormPr
   const [cbmTotal, setCbmTotal] = useState<string>("");
   const [pesoTotalKg, setPesoTotalKg] = useState<string>("");
   const [ncmId, setNcmId] = useState<string>("");
-  const [modalidad, setModalidad] = useState<TipoContenedor>("FCL_40");
+  const [modalidad, setModalidad] = useState<TipoContenedor>("40HQ");
   const [fleteManual, setFleteManual] = useState<string>("");
 
   const ncmSeleccionado = useMemo(
@@ -152,8 +156,8 @@ export function SimuladorForm({ parametros, proveedores, ncms }: SimuladorFormPr
                 </SelectTrigger>
                 <SelectContent>
                   {MODALIDADES.map((m) => (
-                    <SelectItem key={m} value={m}>
-                      {m}
+                    <SelectItem key={m.value} value={m.value}>
+                      {m.label}
                     </SelectItem>
                   ))}
                 </SelectContent>

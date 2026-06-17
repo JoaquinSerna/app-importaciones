@@ -83,7 +83,7 @@ export default function ManualPage() {
 
       <Section id="ncm" title="4. NCMs (Posiciones Arancelarias)">
         <p>Cada producto importado tiene un <strong>código NCM</strong> que determina qué impuestos se pagan. Se cargan en el menú <strong>NCMs</strong>.</p>
-        <p>Hacé clic en <strong>"Nuevo NCM"</strong>, completá el código (ej: <code>9403.20.00</code>), la descripción y los aranceles:</p>
+        <p>Hacé clic en <strong>&ldquo;Nuevo NCM&rdquo;</strong>, completá el código (ej: <code>9403.20.00</code>), la descripción y los aranceles:</p>
         <Table
           headers={["Campo", "Descripción", "Valor típico"]}
           rows={[
@@ -108,7 +108,7 @@ export default function ManualPage() {
           <li>Ingresá el <strong>FOB total en USD</strong>, CBM y peso.</li>
           <li>Seleccioná el <strong>tipo de contenedor</strong>. Si tenés el flete cotizado, ingresalo; si no, el sistema usa los parámetros globales.</li>
           <li>Revisá la cascada de costos calculada automáticamente.</li>
-          <li>Si los números cierran, hacé clic en <strong>"Crear carpeta"</strong>.</li>
+          <li>Si los números cierran, hacé clic en <strong>&ldquo;Crear carpeta&rdquo;</strong>.</li>
         </ol>
         <Callout title="Ejemplo de cascada — FOB USD 10.000, NCM con 20% derecho, 21% IVA, 20% IVA adicional, 6% ganancias, tasa estadística 3%">
           <pre className="text-xs leading-relaxed">{`FOB:                          USD 10.000
@@ -174,7 +174,7 @@ export default function ManualPage() {
       <Section id="pdf" title="9. Extracción de liquidación del despachante">
         <p>Cuando el despachante manda la liquidación, subila para comparar costos reales vs. estimados:</p>
         <ol>
-          <li>Carpeta → tab <strong>Costos</strong> → <strong>"Subir liquidación PDF"</strong>.</li>
+          <li>Carpeta → tab <strong>Costos</strong> → <strong>&ldquo;Subir liquidación PDF&rdquo;</strong>.</li>
           <li>El sistema extrae automáticamente los conceptos y montos del PDF.</li>
           <li>Revisá la comparación estimado vs. real.</li>
           <li>Confirmá — los costos reales quedan registrados.</li>
