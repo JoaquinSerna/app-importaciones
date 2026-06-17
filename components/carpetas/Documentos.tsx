@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, useTransition } from "react";
+import { useRef, useTransition } from "react";
 import { CheckCircle, FileText, Image, Loader2, Upload, XCircle } from "lucide-react";
 
 import { eliminarDocumento, subirDocumento } from "@/app/(app)/carpetas/[id]/documentos/actions";
