@@ -2,7 +2,7 @@
 
 import { useMemo, useState, useTransition } from "react";
 
-import { crearCarpetaDesdeSimulacion } from "@/app/carpetas/nueva/actions";
+import { crearCarpetaDesdeSimulacion } from "@/app/(app)/carpetas/nueva/actions";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";

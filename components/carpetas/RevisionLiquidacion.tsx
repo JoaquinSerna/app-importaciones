@@ -2,7 +2,7 @@
 
 import { useMemo, useState, useTransition } from "react";
 
-import { confirmarActualizacionCostos } from "@/app/carpetas/[id]/documentos/actions";
+import { confirmarActualizacionCostos } from "@/app/(app)/carpetas/[id]/documentos/actions";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";

@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 
-import { crearContenedor } from "@/app/contenedores/nuevo/actions";
+import { crearContenedor } from "@/app/(app)/contenedores/nuevo/actions";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";

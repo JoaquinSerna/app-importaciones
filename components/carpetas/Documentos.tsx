@@ -3,7 +3,7 @@
 import { useRef, useState, useTransition } from "react";
 import { Upload } from "lucide-react";
 
-import { subirYExtraerLiquidacion } from "@/app/carpetas/[id]/documentos/actions";
+import { subirYExtraerLiquidacion } from "@/app/(app)/carpetas/[id]/documentos/actions";
 import { RevisionLiquidacion } from "@/components/carpetas/RevisionLiquidacion";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";

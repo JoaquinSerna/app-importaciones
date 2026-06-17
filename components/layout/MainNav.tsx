@@ -1,9 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
-
+import { usePathname, useRouter } from "next/navigation";
+import { createBrowserClient } from "@supabase/ssr";
 import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
 
 const links = [
   { href: "/dashboard", label: "Dashboard" },
@@ -15,6 +16,18 @@ const links = [
 
 export function MainNav() {
   const pathname = usePathname();
+  const router = useRouter();
+
+  const supabase = createBrowserClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+  );
+
+  async function handleLogout() {
+    await supabase.auth.signOut();
+    router.push("/login");
+    router.refresh();
+  }
 
   return (
     <header className="border-b bg-background">
@@ -22,7 +35,7 @@ export function MainNav() {
         <Link href="/dashboard" className="font-semibold">
           Importaciones
         </Link>
-        <nav className="flex items-center gap-4 text-sm">
+        <nav className="flex items-center gap-4 text-sm flex-1">
           {links.map((link) => {
             const active = pathname?.startsWith(link.href);
             return (
@@ -39,6 +52,9 @@ export function MainNav() {
             );
           })}
         </nav>
+        <Button variant="ghost" size="sm" onClick={handleLogout}>
+          Salir
+        </Button>
       </div>
     </header>
   );

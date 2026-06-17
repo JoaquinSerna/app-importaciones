@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 
-import { crearVersionParametros, type CrearParametrosInput } from "@/app/parametros/actions";
+import { crearVersionParametros, type CrearParametrosInput } from "@/app/(app)/parametros/actions";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";

@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 
-import { agregarCostoManual } from "@/app/carpetas/[id]/actions";
+import { agregarCostoManual } from "@/app/(app)/carpetas/[id]/actions";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
