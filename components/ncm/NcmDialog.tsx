@@ -40,6 +40,7 @@ const DEFAULTS: NcmArancelInput = {
   anticipo_ganancias_pct: 0,
   aplica_iibb: false,
   iibb_pct: 0,
+  aplica_tasa_estadistica: true,
 };
 
 export function NcmDialog({ ncm, trigger }: NcmDialogProps) {
@@ -64,6 +65,7 @@ export function NcmDialog({ ncm, trigger }: NcmDialogProps) {
               anticipo_ganancias_pct: ncm.anticipo_ganancias_pct,
               aplica_iibb: ncm.aplica_iibb,
               iibb_pct: ncm.iibb_pct,
+              aplica_tasa_estadistica: ncm.aplica_tasa_estadistica ?? true,
             }
           : DEFAULTS
       );
@@ -235,6 +237,23 @@ export function NcmDialog({ ncm, trigger }: NcmDialogProps) {
                 />
               </div>
             )}
+          </div>
+
+          {/* Tasa Estadística */}
+          <div className="space-y-2 rounded-md border p-3">
+            <div className="flex items-center gap-2">
+              <input
+                id="aplica_tasa_estadistica"
+                type="checkbox"
+                checked={form.aplica_tasa_estadistica}
+                onChange={(e) => set("aplica_tasa_estadistica", e.target.checked)}
+                className="h-4 w-4 rounded border-input"
+              />
+              <Label htmlFor="aplica_tasa_estadistica">Aplica Tasa Estadística</Label>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              El % y tope se configuran en Parámetros globales
+            </p>
           </div>
 
           <div className="flex justify-end gap-2">

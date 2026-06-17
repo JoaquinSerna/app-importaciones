@@ -60,6 +60,7 @@ export interface NcmArancel {
   anticipo_ganancias_pct: number;
   aplica_iibb: boolean;
   iibb_pct: number;
+  aplica_tasa_estadistica: boolean;
   created_at: string;
   updated_at: string;
 }

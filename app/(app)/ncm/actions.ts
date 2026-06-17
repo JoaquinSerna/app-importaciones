@@ -15,6 +15,7 @@ export interface NcmArancelInput {
   anticipo_ganancias_pct: number;
   aplica_iibb: boolean;
   iibb_pct: number;
+  aplica_tasa_estadistica: boolean;
 }
 
 export async function crearNcm(input: NcmArancelInput) {
@@ -31,6 +32,7 @@ export async function crearNcm(input: NcmArancelInput) {
     anticipo_ganancias_pct: input.anticipo_ganancias_pct,
     aplica_iibb: input.aplica_iibb,
     iibb_pct: input.iibb_pct,
+    aplica_tasa_estadistica: input.aplica_tasa_estadistica,
   });
 
   if (error) {
@@ -56,6 +58,7 @@ export async function actualizarNcm(id: string, input: NcmArancelInput) {
       anticipo_ganancias_pct: input.anticipo_ganancias_pct,
       aplica_iibb: input.aplica_iibb,
       iibb_pct: input.iibb_pct,
+      aplica_tasa_estadistica: input.aplica_tasa_estadistica,
     })
     .eq("id", id);
 

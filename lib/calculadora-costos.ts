@@ -76,7 +76,9 @@ export function calcularCascada(
   const derechoImportacionPct = ncm?.derecho_importacion_pct ?? 0;
   const derechosImportacion = (derechoImportacionPct / 100) * cif;
 
-  const tasaEstadisticaSinTope = ((parametros.tasa_estadistica_pct || 0) / 100) * cif;
+  const tasaEstadisticaSinTope = (ncm?.aplica_tasa_estadistica ?? true)
+    ? ((parametros.tasa_estadistica_pct || 0) / 100) * cif
+    : 0;
   const tope = parametros.tasa_estadistica_tope_usd ?? 150;
   const tasaEstadistica = Math.min(tasaEstadisticaSinTope, tope);
 
