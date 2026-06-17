@@ -12,8 +12,8 @@ create policy "documentos_select_autenticados" on storage.objects
 
 create policy "documentos_insert_admin_operador" on storage.objects
   for insert with check (
-    bucket_id = 'documentos' and auth.rol() in ('admin', 'operador')
+    bucket_id = 'documentos' and public.current_user_rol() in ('admin', 'operador')
   );
 
 create policy "documentos_delete_admin" on storage.objects
-  for delete using (bucket_id = 'documentos' and auth.rol() = 'admin');
+  for delete using (bucket_id = 'documentos' and public.current_user_rol() = 'admin');
