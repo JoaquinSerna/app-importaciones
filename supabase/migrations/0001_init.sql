@@ -27,12 +27,13 @@ create table profiles (
 );
 
 -- Función helper SECURITY DEFINER: lee el rol del usuario autenticado actual.
--- Se usa dentro de las políticas RLS para evitar recursión en profiles.
-create or replace function auth.rol()
+-- Vive en public (Supabase no permite crear funciones en el schema auth desde el SQL Editor).
+create or replace function public.current_user_rol()
 returns rol_usuario
 language sql
 security definer
 stable
+set search_path = public
 as $$
   select rol from public.profiles where id = auth.uid();
 $$;
@@ -213,27 +214,46 @@ alter table criterios_prorrateo enable row level security;
 
 -- ---------------------------------------------------------------------
 -- PROFILES policies
+-- Sin recursión: cada usuario puede ver su propia fila sin pasar por current_user_rol().
+-- Admins ven todo gracias a la segunda policy que lee directamente la columna rol.
 -- ---------------------------------------------------------------------
-create policy "profiles_select_own_or_admin" on profiles
-  for select using (id = auth.uid() or auth.rol() = 'admin');
+create policy "profiles_select_own" on profiles
+  for select using (id = auth.uid());
 
-create policy "profiles_admin_all" on profiles
-  for all using (auth.rol() = 'admin') with check (auth.rol() = 'admin');
+create policy "profiles_select_all_if_admin" on profiles
+  for select using (
+    exists (select 1 from public.profiles p where p.id = auth.uid() and p.rol = 'admin')
+  );
+
+create policy "profiles_insert_admin" on profiles
+  for insert with check (
+    exists (select 1 from public.profiles p where p.id = auth.uid() and p.rol = 'admin')
+  );
+
+create policy "profiles_update_admin" on profiles
+  for update using (
+    exists (select 1 from public.profiles p where p.id = auth.uid() and p.rol = 'admin')
+  );
+
+create policy "profiles_delete_admin" on profiles
+  for delete using (
+    exists (select 1 from public.profiles p where p.id = auth.uid() and p.rol = 'admin')
+  );
 
 -- ---------------------------------------------------------------------
 -- PARAMETROS_GLOBALES: admin todo, operador/viewer solo SELECT, nadie hace UPDATE/DELETE salvo admin
 -- ---------------------------------------------------------------------
 create policy "parametros_globales_select_all" on parametros_globales
-  for select using (auth.rol() in ('admin', 'operador', 'viewer'));
+  for select using (public.current_user_rol() in ('admin', 'operador', 'viewer'));
 
 create policy "parametros_globales_insert_admin" on parametros_globales
-  for insert with check (auth.rol() = 'admin');
+  for insert with check (public.current_user_rol() = 'admin');
 
 create policy "parametros_globales_update_admin" on parametros_globales
-  for update using (auth.rol() = 'admin');
+  for update using (public.current_user_rol() = 'admin');
 
 create policy "parametros_globales_delete_admin" on parametros_globales
-  for delete using (auth.rol() = 'admin');
+  for delete using (public.current_user_rol() = 'admin');
 
 -- ---------------------------------------------------------------------
 -- Helper pattern para tablas operativas:
@@ -242,60 +262,60 @@ create policy "parametros_globales_delete_admin" on parametros_globales
 
 -- PROVEEDORES
 create policy "proveedores_select" on proveedores
-  for select using (auth.rol() in ('admin', 'operador', 'viewer'));
+  for select using (public.current_user_rol() in ('admin', 'operador', 'viewer'));
 create policy "proveedores_insert" on proveedores
-  for insert with check (auth.rol() in ('admin', 'operador'));
+  for insert with check (public.current_user_rol() in ('admin', 'operador'));
 create policy "proveedores_update" on proveedores
-  for update using (auth.rol() in ('admin', 'operador'));
+  for update using (public.current_user_rol() in ('admin', 'operador'));
 create policy "proveedores_delete" on proveedores
-  for delete using (auth.rol() = 'admin');
+  for delete using (public.current_user_rol() = 'admin');
 
 -- CONTENEDORES
 create policy "contenedores_select" on contenedores
-  for select using (auth.rol() in ('admin', 'operador', 'viewer'));
+  for select using (public.current_user_rol() in ('admin', 'operador', 'viewer'));
 create policy "contenedores_insert" on contenedores
-  for insert with check (auth.rol() in ('admin', 'operador'));
+  for insert with check (public.current_user_rol() in ('admin', 'operador'));
 create policy "contenedores_update" on contenedores
-  for update using (auth.rol() in ('admin', 'operador'));
+  for update using (public.current_user_rol() in ('admin', 'operador'));
 create policy "contenedores_delete" on contenedores
-  for delete using (auth.rol() = 'admin');
+  for delete using (public.current_user_rol() = 'admin');
 
 -- CARPETAS
 create policy "carpetas_select" on carpetas
-  for select using (auth.rol() in ('admin', 'operador', 'viewer'));
+  for select using (public.current_user_rol() in ('admin', 'operador', 'viewer'));
 create policy "carpetas_insert" on carpetas
-  for insert with check (auth.rol() in ('admin', 'operador'));
+  for insert with check (public.current_user_rol() in ('admin', 'operador'));
 create policy "carpetas_update" on carpetas
-  for update using (auth.rol() in ('admin', 'operador'));
+  for update using (public.current_user_rol() in ('admin', 'operador'));
 create policy "carpetas_delete" on carpetas
-  for delete using (auth.rol() = 'admin');
+  for delete using (public.current_user_rol() = 'admin');
 
 -- SKUS
 create policy "skus_select" on skus
-  for select using (auth.rol() in ('admin', 'operador', 'viewer'));
+  for select using (public.current_user_rol() in ('admin', 'operador', 'viewer'));
 create policy "skus_insert" on skus
-  for insert with check (auth.rol() in ('admin', 'operador'));
+  for insert with check (public.current_user_rol() in ('admin', 'operador'));
 create policy "skus_update" on skus
-  for update using (auth.rol() in ('admin', 'operador'));
+  for update using (public.current_user_rol() in ('admin', 'operador'));
 create policy "skus_delete" on skus
-  for delete using (auth.rol() = 'admin');
+  for delete using (public.current_user_rol() = 'admin');
 
 -- COSTOS
 create policy "costos_select" on costos
-  for select using (auth.rol() in ('admin', 'operador', 'viewer'));
+  for select using (public.current_user_rol() in ('admin', 'operador', 'viewer'));
 create policy "costos_insert" on costos
-  for insert with check (auth.rol() in ('admin', 'operador'));
+  for insert with check (public.current_user_rol() in ('admin', 'operador'));
 create policy "costos_update" on costos
-  for update using (auth.rol() in ('admin', 'operador'));
+  for update using (public.current_user_rol() in ('admin', 'operador'));
 create policy "costos_delete" on costos
-  for delete using (auth.rol() = 'admin');
+  for delete using (public.current_user_rol() = 'admin');
 
 -- CRITERIOS_PRORRATEO
 create policy "criterios_prorrateo_select" on criterios_prorrateo
-  for select using (auth.rol() in ('admin', 'operador', 'viewer'));
+  for select using (public.current_user_rol() in ('admin', 'operador', 'viewer'));
 create policy "criterios_prorrateo_insert" on criterios_prorrateo
-  for insert with check (auth.rol() in ('admin', 'operador'));
+  for insert with check (public.current_user_rol() in ('admin', 'operador'));
 create policy "criterios_prorrateo_update" on criterios_prorrateo
-  for update using (auth.rol() in ('admin', 'operador'));
+  for update using (public.current_user_rol() in ('admin', 'operador'));
 create policy "criterios_prorrateo_delete" on criterios_prorrateo
-  for delete using (auth.rol() = 'admin');
+  for delete using (public.current_user_rol() = 'admin');
