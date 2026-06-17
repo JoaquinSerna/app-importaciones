@@ -14,12 +14,6 @@ const CAMPOS: { key: keyof CrearParametrosInput; label: string; columnaSql: keyo
   { key: "gastoTerminalUsd", label: "Gasto terminal (USD)", columnaSql: "gasto_terminal_usd" },
   { key: "fleteInternoUsd", label: "Flete interno (USD)", columnaSql: "flete_interno_usd" },
   { key: "seguroPct", label: "Seguro (%)", columnaSql: "seguro_pct" },
-  { key: "tasaEstadisticaPct", label: "Tasa estadística (%)", columnaSql: "tasa_estadistica_pct" },
-  {
-    key: "tasaEstadisticaTopeUsd",
-    label: "Tope tasa estadística (USD)",
-    columnaSql: "tasa_estadistica_tope_usd",
-  },
   {
     key: "honorariosDespachantePct",
     label: "Honorarios despachante (%)",

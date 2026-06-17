@@ -41,6 +41,7 @@ const DEFAULTS: NcmArancelInput = {
   aplica_iibb: false,
   iibb_pct: 0,
   aplica_tasa_estadistica: true,
+  tasa_estadistica_pct: 3,
 };
 
 export function NcmDialog({ ncm, trigger }: NcmDialogProps) {
@@ -66,6 +67,7 @@ export function NcmDialog({ ncm, trigger }: NcmDialogProps) {
               aplica_iibb: ncm.aplica_iibb,
               iibb_pct: ncm.iibb_pct,
               aplica_tasa_estadistica: ncm.aplica_tasa_estadistica ?? true,
+              tasa_estadistica_pct: ncm.tasa_estadistica_pct ?? 3,
             }
           : DEFAULTS
       );
@@ -251,9 +253,19 @@ export function NcmDialog({ ncm, trigger }: NcmDialogProps) {
               />
               <Label htmlFor="aplica_tasa_estadistica">Aplica Tasa Estadística</Label>
             </div>
-            <p className="text-xs text-muted-foreground">
-              El % y tope se configuran en Parámetros globales
-            </p>
+            {form.aplica_tasa_estadistica && (
+              <div className="space-y-2 pt-2">
+                <Label htmlFor="tasa_estadistica_pct">Tasa estadística (%)</Label>
+                <Input
+                  id="tasa_estadistica_pct"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={form.tasa_estadistica_pct}
+                  onChange={(e) => set("tasa_estadistica_pct", parseFloat(e.target.value) || 0)}
+                />
+              </div>
+            )}
           </div>
 
           <div className="flex justify-end gap-2">

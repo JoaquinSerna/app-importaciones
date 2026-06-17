@@ -8,8 +8,6 @@ export interface CrearParametrosInput {
   gastoTerminalUsd: number;
   fleteInternoUsd: number;
   seguroPct: number;
-  tasaEstadisticaPct: number;
-  tasaEstadisticaTopeUsd: number;
   honorariosDespachantePct: number;
   honorariosDespachanteMinimoUsd: number;
   tcUsdArs: number;
@@ -40,8 +38,6 @@ export async function crearVersionParametros(input: CrearParametrosInput) {
     gasto_terminal_usd: input.gastoTerminalUsd,
     flete_interno_usd: input.fleteInternoUsd,
     seguro_pct: input.seguroPct,
-    tasa_estadistica_pct: input.tasaEstadisticaPct,
-    tasa_estadistica_tope_usd: input.tasaEstadisticaTopeUsd,
     honorarios_despachante_pct: input.honorariosDespachantePct,
     honorarios_despachante_minimo_usd: input.honorariosDespachanteMinimoUsd,
     tc_usd_ars: input.tcUsdArs,

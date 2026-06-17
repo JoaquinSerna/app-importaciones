@@ -72,8 +72,6 @@ export default async function ParametrosPage() {
                 <TableHead className="text-right">Gasto terminal</TableHead>
                 <TableHead className="text-right">Flete interno</TableHead>
                 <TableHead className="text-right">Seguro %</TableHead>
-                <TableHead className="text-right">Tasa est. %</TableHead>
-                <TableHead className="text-right">Tope est. USD</TableHead>
                 <TableHead className="text-right">Honorarios %</TableHead>
                 <TableHead className="text-right">Mín. honor.</TableHead>
                 <TableHead className="text-right">Bcos. %</TableHead>
@@ -87,8 +85,6 @@ export default async function ParametrosPage() {
                   <TableCell className="text-right">{p.gasto_terminal_usd}</TableCell>
                   <TableCell className="text-right">{p.flete_interno_usd}</TableCell>
                   <TableCell className="text-right">{p.seguro_pct}</TableCell>
-                  <TableCell className="text-right">{p.tasa_estadistica_pct}</TableCell>
-                  <TableCell className="text-right">{p.tasa_estadistica_tope_usd}</TableCell>
                   <TableCell className="text-right">{p.honorarios_despachante_pct}</TableCell>
                   <TableCell className="text-right">{p.honorarios_despachante_minimo_usd}</TableCell>
                   <TableCell className="text-right">{p.gastos_bancarios_pct}</TableCell>
@@ -96,7 +92,7 @@ export default async function ParametrosPage() {
               ))}
               {historialList.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={10} className="text-center text-muted-foreground">
+                  <TableCell colSpan={8} className="text-center text-muted-foreground">
                     Sin versiones de parámetros registradas.
                   </TableCell>
                 </TableRow>

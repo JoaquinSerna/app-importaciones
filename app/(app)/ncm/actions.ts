@@ -16,6 +16,7 @@ export interface NcmArancelInput {
   aplica_iibb: boolean;
   iibb_pct: number;
   aplica_tasa_estadistica: boolean;
+  tasa_estadistica_pct: number;
 }
 
 export async function crearNcm(input: NcmArancelInput) {
@@ -33,6 +34,7 @@ export async function crearNcm(input: NcmArancelInput) {
     aplica_iibb: input.aplica_iibb,
     iibb_pct: input.iibb_pct,
     aplica_tasa_estadistica: input.aplica_tasa_estadistica,
+    tasa_estadistica_pct: input.tasa_estadistica_pct,
   });
 
   if (error) {
@@ -59,6 +61,7 @@ export async function actualizarNcm(id: string, input: NcmArancelInput) {
       aplica_iibb: input.aplica_iibb,
       iibb_pct: input.iibb_pct,
       aplica_tasa_estadistica: input.aplica_tasa_estadistica,
+      tasa_estadistica_pct: input.tasa_estadistica_pct,
     })
     .eq("id", id);
 

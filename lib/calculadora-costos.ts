@@ -47,7 +47,7 @@ export interface ResultadoCascada {
  *  3. Seguro = seguro_pct sobre (FOB + Flete)
  *  4. CIF = FOB + Flete + Seguro
  *  5. Derechos de importación = derecho_importacion_pct (del NCM) sobre CIF
- *  6. Tasa estadística = tasa_estadistica_pct sobre CIF, con tope
+ *  6. Tasa estadística = tasa_estadistica_pct (del NCM, si aplica) sobre CIF
  *  7. Base imponible IVA = CIF + Derechos + Tasa estadística
  *  8. IVA = iva_pct (del NCM) sobre base imponible
  *  9. IVA adicional = iva_adicional_pct (del NCM, si aplica) sobre base imponible
@@ -76,11 +76,9 @@ export function calcularCascada(
   const derechoImportacionPct = ncm?.derecho_importacion_pct ?? 0;
   const derechosImportacion = (derechoImportacionPct / 100) * cif;
 
-  const tasaEstadisticaSinTope = (ncm?.aplica_tasa_estadistica ?? true)
-    ? ((parametros.tasa_estadistica_pct || 0) / 100) * cif
+  const tasaEstadistica = (ncm?.aplica_tasa_estadistica ?? false)
+    ? ((ncm?.tasa_estadistica_pct ?? 0) / 100) * cif
     : 0;
-  const tope = parametros.tasa_estadistica_tope_usd ?? 150;
-  const tasaEstadistica = Math.min(tasaEstadisticaSinTope, tope);
 
   const baseImponibleIva = cif + derechosImportacion + tasaEstadistica;
 

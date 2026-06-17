@@ -38,8 +38,6 @@ export interface ParametrosGlobales {
   gasto_terminal_usd: number;
   flete_interno_usd: number;
   seguro_pct: number;
-  tasa_estadistica_pct: number;
-  tasa_estadistica_tope_usd: number;
   honorarios_despachante_pct: number;
   honorarios_despachante_minimo_usd: number;
   tc_usd_ars: number;
@@ -61,6 +59,7 @@ export interface NcmArancel {
   aplica_iibb: boolean;
   iibb_pct: number;
   aplica_tasa_estadistica: boolean;
+  tasa_estadistica_pct: number;
   created_at: string;
   updated_at: string;
 }
