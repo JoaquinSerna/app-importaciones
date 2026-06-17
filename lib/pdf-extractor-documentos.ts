@@ -95,6 +95,130 @@ Analizá esta instrucción de transferencia bancaria y extraé la siguiente info
   "concepto": "concepto del pago"
 }
 Solo devolvé el JSON, sin texto adicional.`,
+
+  saf: `
+Analizá este SAF (Servicio de Almacenaje y Fiscalización) del despachante de aduanas y extraé la siguiente información en JSON:
+{
+  "numero_saf": "número del SAF si aparece",
+  "despachante": "nombre del despachante o empresa",
+  "importador": "nombre del importador",
+  "fecha": "YYYY-MM-DD",
+  "monto_total": número total a pagar,
+  "moneda": "USD/ARS/etc",
+  "contenedor": "número de contenedor si aparece",
+  "conceptos": [{ "descripcion": "...", "monto": número }]
+}
+Solo devolvé el JSON, sin texto adicional.`,
+
+  comprobante_pago_saf: `
+Analizá este comprobante de pago y extraé la siguiente información en JSON:
+{
+  "fecha": "fecha del pago (YYYY-MM-DD)",
+  "monto": número,
+  "moneda": "USD/ARS/etc",
+  "banco_origen": "nombre del banco si aparece",
+  "beneficiario": "nombre del destinatario si aparece",
+  "concepto": "concepto o descripción del pago si aparece"
+}
+Solo devolvé el JSON, sin texto adicional.`,
+
+  factura_logistica: `
+Analizá esta factura de servicios logísticos (puede ser de empresas como ACW Cargo, Cargo Express, etc.) y extraé la siguiente información en JSON:
+{
+  "numero_factura": "número de factura",
+  "emisor": "nombre de la empresa logística",
+  "cliente": "nombre del cliente/importador",
+  "fecha": "YYYY-MM-DD",
+  "monto_total": número total,
+  "moneda": "USD/ARS/etc",
+  "contenedor": "número de contenedor si aparece",
+  "conceptos": [
+    { "descripcion": "descripción del servicio (flete, THC, handling, depósito, etc.)", "monto": número, "moneda": "USD/ARS" }
+  ]
+}
+Solo devolvé el JSON, sin texto adicional.`,
+
+  comprobante_pago_logistica: `
+Analizá este comprobante de pago y extraé la siguiente información en JSON:
+{
+  "fecha": "fecha del pago (YYYY-MM-DD)",
+  "monto": número,
+  "moneda": "USD/ARS/etc",
+  "banco_origen": "nombre del banco si aparece",
+  "beneficiario": "nombre del destinatario si aparece",
+  "concepto": "concepto o descripción del pago si aparece"
+}
+Solo devolvé el JSON, sin texto adicional.`,
+
+  factura_despachante: `
+Analizá esta factura del despachante de aduanas y extraé la siguiente información en JSON:
+{
+  "numero_factura": "número de factura",
+  "despachante": "nombre del despachante o empresa",
+  "cliente": "nombre del cliente/importador",
+  "fecha": "YYYY-MM-DD",
+  "monto_total": número total,
+  "moneda": "USD/ARS/etc",
+  "numero_despacho": "número de despacho si aparece",
+  "conceptos": [
+    { "descripcion": "descripción del concepto (honorarios, gastos, sellados, etc.)", "monto": número, "moneda": "USD/ARS" }
+  ]
+}
+Solo devolvé el JSON, sin texto adicional.`,
+
+  comprobante_pago_despachante: `
+Analizá este comprobante de pago y extraé la siguiente información en JSON:
+{
+  "fecha": "fecha del pago (YYYY-MM-DD)",
+  "monto": número,
+  "moneda": "USD/ARS/etc",
+  "banco_origen": "nombre del banco si aparece",
+  "beneficiario": "nombre del destinatario si aparece",
+  "concepto": "concepto o descripción del pago si aparece"
+}
+Solo devolvé el JSON, sin texto adicional.`,
+
+  despacho_aduana: `
+Analizá este despacho de aduana argentino y extraé la siguiente información en JSON:
+{
+  "numero_despacho": "número completo del despacho (ej: 012D-2024-000123)",
+  "importador": "nombre del importador",
+  "despachante": "nombre del despachante",
+  "fecha_oficializacion": "YYYY-MM-DD",
+  "aduana": "nombre de la aduana",
+  "regimen": "código y descripción del régimen de importación",
+  "items": [
+    {
+      "item": número de item,
+      "ncm": "código NCM de 8 dígitos",
+      "descripcion": "descripción de la mercadería",
+      "cantidad": número,
+      "unidad": "unidad",
+      "fob_usd": número (FOB en USD),
+      "derechos_importacion": número (en ARS),
+      "tasa_estadistica": número (en ARS),
+      "iva": número (en ARS),
+      "iva_adicional": número (en ARS),
+      "ganancias": número (en ARS),
+      "total_tributos": número (en ARS)
+    }
+  ],
+  "totales": {
+    "fob_usd": número total FOB en USD,
+    "flete_usd": número flete en USD si aparece,
+    "seguro_usd": número seguro en USD si aparece,
+    "cif_usd": número CIF en USD si aparece,
+    "derechos_importacion_ars": número total,
+    "tasa_estadistica_ars": número total,
+    "iva_ars": número total IVA,
+    "iva_adicional_ars": número total IVA adicional,
+    "ganancias_ars": número total ganancias,
+    "total_tributos_ars": número total de todos los tributos
+  },
+  "tipo_cambio": número (TC oficial usado),
+  "banco_interviniente": "banco si aparece"
+}
+Si hay múltiples páginas o ítems, incluí todos. Solo devolvé el JSON, sin texto adicional.`,
 };
 
 export async function extraerDatosDocumento(

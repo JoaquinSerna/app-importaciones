@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
 
+import { DocumentosContenedor } from "@/components/contenedores/DocumentosContenedor";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -11,9 +12,10 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { prorratearCostosContenedor } from "@/lib/prorrateo";
 import { createClient } from "@/lib/supabase/server";
-import type { Carpeta, Contenedor, Costo, CriterioProrrateo } from "@/lib/types";
+import type { Carpeta, Contenedor, Costo, CriterioProrrateo, Documento } from "@/lib/types";
 
 function formatUsd(n: number) {
   return n.toLocaleString("es-AR", { style: "currency", currency: "USD", maximumFractionDigits: 2 });
@@ -39,13 +41,14 @@ export default async function ContenedorDetallePage({ params }: { params: { id: 
 
   const contenedorTyped = contenedor as Contenedor;
 
-  const [{ data: carpetas }, { data: costosContenedor }, { data: criterios }] = await Promise.all([
+  const [{ data: carpetas }, { data: costosContenedor }, { data: criterios }, { data: documentos }] = await Promise.all([
     supabase
       .from("carpetas")
       .select("*, proveedores(nombre)")
       .eq("contenedor_id", params.id),
     supabase.from("costos").select("*").eq("nivel", "contenedor").eq("contenedor_id", params.id),
     supabase.from("criterios_prorrateo").select("*").eq("contenedor_id", params.id),
+    supabase.from("documentos").select("*").eq("contenedor_id", params.id).order("created_at"),
   ]);
 
   const carpetasList = (carpetas ?? []) as (Carpeta & { proveedores?: { nombre: string } | null })[];
@@ -83,17 +86,25 @@ export default async function ContenedorDetallePage({ params }: { params: { id: 
   const totalCostosContenedor = costosList.reduce((acc, c) => acc + c.monto_estimado_usd, 0);
   const cbmTotalContenedor = carpetasList.reduce((acc, c) => acc + (c.cbm_total ?? 0), 0);
 
+  const documentosTyped = (documentos ?? []) as Documento[];
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-semibold">{contenedorTyped.numero_contenedor ?? "(sin número)"}</h1>
-          <p className="text-muted-foreground">
-            Contenedor #{contenedorTyped.numero_contenedor ?? "-"}
-          </p>
+          <p className="text-muted-foreground">Contenedor {contenedorTyped.tipo}</p>
         </div>
         <Badge variant="secondary">{contenedorTyped.tipo}</Badge>
       </div>
+
+      <Tabs defaultValue="resumen">
+        <TabsList>
+          <TabsTrigger value="resumen">Resumen</TabsTrigger>
+          <TabsTrigger value="documentos">Documentos</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="resumen" className="space-y-6">
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <Card>
@@ -216,6 +227,13 @@ export default async function ContenedorDetallePage({ params }: { params: { id: 
           </div>
         </CardContent>
       </Card>
+
+        </TabsContent>
+
+        <TabsContent value="documentos">
+          <DocumentosContenedor contenedorId={params.id} documentos={documentosTyped} />
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }
