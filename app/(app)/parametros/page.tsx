@@ -1,4 +1,5 @@
 import { NuevaVersionParametrosForm } from "@/components/parametros/NuevaVersionParametrosForm";
+import { DeleteParametrosButton } from "@/components/parametros/DeleteParametrosButton";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Table,
@@ -76,6 +77,7 @@ export default async function ParametrosPage() {
                 <TableHead className="text-right">Honorarios %</TableHead>
                 <TableHead className="text-right">Mín. honor.</TableHead>
                 <TableHead className="text-right">Bcos. %</TableHead>
+                <TableHead />
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -90,6 +92,9 @@ export default async function ParametrosPage() {
                   <TableCell className="text-right">{p.honorarios_despachante_pct}</TableCell>
                   <TableCell className="text-right">{p.honorarios_despachante_minimo_usd}</TableCell>
                   <TableCell className="text-right">{p.gastos_bancarios_pct}</TableCell>
+                  <TableCell>
+                    <DeleteParametrosButton id={p.id} fecha={formatFechaHora(p.created_at)} />
+                  </TableCell>
                 </TableRow>
               ))}
               {historialList.length === 0 && (

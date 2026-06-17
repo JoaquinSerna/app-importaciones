@@ -11,6 +11,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { DeleteContenedorButton } from "@/components/contenedores/DeleteContenedorButton";
 import { createClient } from "@/lib/supabase/server";
 import type { Contenedor } from "@/lib/types";
 
@@ -48,34 +49,37 @@ export default async function ContenedoresPage() {
               <TableRow>
                 <TableHead>Número</TableHead>
                 <TableHead>Tipo</TableHead>
-                <TableHead>Naviera</TableHead>
-                <TableHead>BL</TableHead>
                 <TableHead>Zarpe</TableHead>
                 <TableHead>ETA</TableHead>
                 <TableHead>Estado</TableHead>
+                <TableHead />
               </TableRow>
             </TableHeader>
             <TableBody>
               {lista.map((c) => (
-                <TableRow key={c.id} className="cursor-pointer">
+                <TableRow key={c.id}>
                   <TableCell>
                     <Link href={`/contenedores/${c.id}`} className="font-medium hover:underline">
                       {c.numero_contenedor ?? "(sin número)"}
                     </Link>
                   </TableCell>
                   <TableCell>{c.tipo}</TableCell>
-                  <TableCell>{c.naviera ?? "-"}</TableCell>
-                  <TableCell>{c.bl_number ?? "-"}</TableCell>
                   <TableCell>{formatFecha(c.fecha_zarpe)}</TableCell>
                   <TableCell>{formatFecha(c.eta_contenedor)}</TableCell>
                   <TableCell>
                     {c.estado_contenedor ? <Badge variant="secondary">{c.estado_contenedor}</Badge> : "-"}
                   </TableCell>
+                  <TableCell className="flex items-center gap-1">
+                    <Button asChild variant="ghost" size="sm">
+                      <Link href={`/contenedores/${c.id}`}>Ver</Link>
+                    </Button>
+                    <DeleteContenedorButton id={c.id} numero={c.numero_contenedor} />
+                  </TableCell>
                 </TableRow>
               ))}
               {lista.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={7} className="text-center text-muted-foreground">
+                  <TableCell colSpan={6} className="text-center text-muted-foreground">
                     Sin contenedores registrados.
                   </TableCell>
                 </TableRow>

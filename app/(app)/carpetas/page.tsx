@@ -10,6 +10,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { DeleteCarpetaButton } from "@/components/carpetas/DeleteCarpetaButton";
 
 const ESTADO_LABELS: Record<string, string> = {
   simulacion: "Simulación",
@@ -83,10 +84,11 @@ export default async function CarpetasPage() {
                   <TableCell className="text-muted-foreground text-sm">
                     {new Date(c.created_at).toLocaleDateString("es-AR")}
                   </TableCell>
-                  <TableCell>
+                  <TableCell className="flex items-center gap-1">
                     <Button asChild variant="ghost" size="sm">
                       <Link href={`/carpetas/${c.id}`}>Ver</Link>
                     </Button>
+                    <DeleteCarpetaButton id={c.id} numero={c.numero_carpeta} />
                   </TableCell>
                 </TableRow>
               ))}
