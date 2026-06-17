@@ -2,7 +2,7 @@
 
 export type RolUsuario = "admin" | "operador" | "viewer";
 
-export type TipoContenedor = "FCL_20" | "FCL_40" | "FCL_40HC" | "LCL" | "AEREO";
+export type TipoContenedor = "20HQ" | "40HQ" | "AEREO";
 
 export type EstadoCarpeta =
   | "simulacion"
@@ -35,6 +35,7 @@ export interface Profile {
 
 export interface ParametrosGlobales {
   id: string;
+  flete_internacional_usd: number;
   gasto_terminal_usd: number;
   flete_interno_usd: number;
   seguro_pct: number;
@@ -113,6 +114,7 @@ export interface Carpeta {
   monto_anticipo_usd: number | null;
   monto_saldo_usd: number | null;
   created_at: string;
+  bl_number: string | null;
   created_by: string | null;
 }
 

@@ -69,8 +69,9 @@ export default async function ParametrosPage() {
               <TableRow>
                 <TableHead>Fecha</TableHead>
                 <TableHead className="text-right">TC USD/ARS</TableHead>
+                <TableHead className="text-right">Flete intern.</TableHead>
                 <TableHead className="text-right">Gasto terminal</TableHead>
-                <TableHead className="text-right">Flete interno</TableHead>
+                <TableHead className="text-right">Flete local</TableHead>
                 <TableHead className="text-right">Seguro %</TableHead>
                 <TableHead className="text-right">Honorarios %</TableHead>
                 <TableHead className="text-right">Mín. honor.</TableHead>
@@ -82,6 +83,7 @@ export default async function ParametrosPage() {
                 <TableRow key={p.id}>
                   <TableCell>{formatFechaHora(p.created_at)}</TableCell>
                   <TableCell className="text-right">{p.tc_usd_ars}</TableCell>
+                  <TableCell className="text-right">{p.flete_internacional_usd}</TableCell>
                   <TableCell className="text-right">{p.gasto_terminal_usd}</TableCell>
                   <TableCell className="text-right">{p.flete_interno_usd}</TableCell>
                   <TableCell className="text-right">{p.seguro_pct}</TableCell>
@@ -92,7 +94,7 @@ export default async function ParametrosPage() {
               ))}
               {historialList.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={8} className="text-center text-muted-foreground">
+                  <TableCell colSpan={9} className="text-center text-muted-foreground">
                     Sin versiones de parámetros registradas.
                   </TableCell>
                 </TableRow>

@@ -52,7 +52,7 @@ export default async function ContenedorDetallePage({ params }: { params: { id: 
   const costosList = (costosContenedor ?? []) as Costo[];
   const criteriosList = (criterios ?? []) as CriterioProrrateo[];
 
-  const esLcl = contenedorTyped.tipo === "LCL";
+  const esLcl = false; // tipos actuales: 20HQ, 40HQ, AEREO — no hay LCL
 
   // Mapear criterio configurado por costo (default 'cbm' si no hay registro explícito).
   const criterioPorCosto = new Map(criteriosList.map((c) => [c.costo_id, c.criterio]));
@@ -89,7 +89,7 @@ export default async function ContenedorDetallePage({ params }: { params: { id: 
         <div>
           <h1 className="text-2xl font-semibold">{contenedorTyped.numero_contenedor ?? "(sin número)"}</h1>
           <p className="text-muted-foreground">
-            {contenedorTyped.naviera ?? "Sin naviera"} · BL {contenedorTyped.bl_number ?? "-"}
+            Contenedor #{contenedorTyped.numero_contenedor ?? "-"}
           </p>
         </div>
         <Badge variant="secondary">{contenedorTyped.tipo}</Badge>

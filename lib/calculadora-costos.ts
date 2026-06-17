@@ -66,7 +66,9 @@ export function calcularCascada(
   const flete =
     datos.fleteInternacionalUsd !== undefined
       ? datos.fleteInternacionalUsd
-      : (parametros.gasto_terminal_usd || 0) + (parametros.flete_interno_usd || 0);
+      : (parametros.flete_internacional_usd || 0) +
+        (parametros.gasto_terminal_usd || 0) +
+        (parametros.flete_interno_usd || 0);
 
   const seguro = ((parametros.seguro_pct || 0) / 100) * (fob + flete);
 

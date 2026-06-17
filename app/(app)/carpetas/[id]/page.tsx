@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 
+import { BlEditor } from "@/components/carpetas/BlEditor";
 import { CostosTable } from "@/components/carpetas/CostosTable";
 import { Documentos } from "@/components/carpetas/Documentos";
 import { SkusTable } from "@/components/carpetas/SkusTable";
@@ -113,6 +114,16 @@ export default async function CarpetaDetallePage({ params }: { params: { id: str
               <CardContent className="text-xl font-semibold">{formatFecha(carpetaTyped.eta)}</CardContent>
             </Card>
           </div>
+
+          <Card className="mt-4">
+            <CardHeader>
+              <CardTitle className="text-base">Despacho</CardTitle>
+            </CardHeader>
+            <CardContent className="text-sm">
+              <span className="text-muted-foreground mr-2">BL:</span>
+              <BlEditor carpetaId={carpetaTyped.id} blActual={carpetaTyped.bl_number} />
+            </CardContent>
+          </Card>
 
           <Card className="mt-4">
             <CardHeader>

@@ -5,6 +5,17 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import type { CategoriaCosto } from "@/lib/types";
 
+export async function actualizarBlCarpeta(carpetaId: string, blNumber: string) {
+  const supabase = createClient();
+  const { error } = await supabase
+    .from("carpetas")
+    .update({ bl_number: blNumber.trim() || null })
+    .eq("id", carpetaId);
+
+  if (error) throw new Error(`Error actualizando BL: ${error.message}`);
+  revalidatePath(`/carpetas/${carpetaId}`);
+}
+
 export interface AgregarCostoInput {
   carpetaId: string;
   concepto: string;

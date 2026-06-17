@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 
 export interface CrearParametrosInput {
+  fleteInternacionalUsd: number;
   gastoTerminalUsd: number;
   fleteInternoUsd: number;
   seguroPct: number;
@@ -35,6 +36,7 @@ export async function crearVersionParametros(input: CrearParametrosInput) {
   }
 
   const { error } = await supabase.from("parametros_globales").insert({
+    flete_internacional_usd: input.fleteInternacionalUsd,
     gasto_terminal_usd: input.gastoTerminalUsd,
     flete_interno_usd: input.fleteInternoUsd,
     seguro_pct: input.seguroPct,

@@ -17,28 +17,33 @@ import {
 import { useToast } from "@/components/ui/use-toast";
 import type { TipoContenedor } from "@/lib/types";
 
-const TIPOS: TipoContenedor[] = ["FCL_20", "FCL_40", "FCL_40HC", "LCL", "AEREO"];
+const TIPOS: { value: TipoContenedor; label: string }[] = [
+  { value: "40HQ", label: "40HQ" },
+  { value: "20HQ", label: "20HQ" },
+  { value: "AEREO", label: "Aéreo" },
+];
 
 export function NuevoContenedorForm() {
   const { toast } = useToast();
   const [isPending, startTransition] = useTransition();
 
   const [numeroContenedor, setNumeroContenedor] = useState("");
-  const [tipo, setTipo] = useState<TipoContenedor>("FCL_40");
-  const [naviera, setNaviera] = useState("");
-  const [blNumber, setBlNumber] = useState("");
+  const [tipo, setTipo] = useState<TipoContenedor>("40HQ");
   const [fechaZarpe, setFechaZarpe] = useState("");
   const [etaContenedor, setEtaContenedor] = useState("");
   const [observaciones, setObservaciones] = useState("");
 
   function handleSubmit() {
+    if (!numeroContenedor.trim()) {
+      toast({ title: "El número de contenedor es obligatorio" });
+      return;
+    }
+
     startTransition(async () => {
       try {
         await crearContenedor({
-          numeroContenedor: numeroContenedor || undefined,
+          numeroContenedor: numeroContenedor.trim(),
           tipo,
-          naviera: naviera || undefined,
-          blNumber: blNumber || undefined,
           fechaZarpe: fechaZarpe || undefined,
           etaContenedor: etaContenedor || undefined,
           observaciones: observaciones || undefined,
@@ -60,8 +65,19 @@ export function NuevoContenedorForm() {
       <CardContent className="space-y-4">
         <div className="grid grid-cols-2 gap-4">
           <div className="space-y-2">
-            <Label htmlFor="numero">Número de contenedor</Label>
-            <Input id="numero" value={numeroContenedor} onChange={(e) => setNumeroContenedor(e.target.value)} />
+            <Label htmlFor="numero">Número de contenedor *</Label>
+            <Input
+              id="numero"
+              type="number"
+              min="1"
+              step="1"
+              placeholder="ej: 42"
+              value={numeroContenedor}
+              onChange={(e) => setNumeroContenedor(e.target.value)}
+            />
+            <p className="text-xs text-muted-foreground">
+              Debe ser mayor al último contenedor registrado.
+            </p>
           </div>
           <div className="space-y-2">
             <Label htmlFor="tipo">Tipo</Label>
@@ -71,23 +87,12 @@ export function NuevoContenedorForm() {
               </SelectTrigger>
               <SelectContent>
                 {TIPOS.map((t) => (
-                  <SelectItem key={t} value={t}>
-                    {t}
+                  <SelectItem key={t.value} value={t.value}>
+                    {t.label}
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-2 gap-4">
-          <div className="space-y-2">
-            <Label htmlFor="naviera">Naviera</Label>
-            <Input id="naviera" value={naviera} onChange={(e) => setNaviera(e.target.value)} />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="bl">BL Number</Label>
-            <Input id="bl" value={blNumber} onChange={(e) => setBlNumber(e.target.value)} />
           </div>
         </div>
 
@@ -98,12 +103,7 @@ export function NuevoContenedorForm() {
           </div>
           <div className="space-y-2">
             <Label htmlFor="eta">ETA</Label>
-            <Input
-              id="eta"
-              type="date"
-              value={etaContenedor}
-              onChange={(e) => setEtaContenedor(e.target.value)}
-            />
+            <Input id="eta" type="date" value={etaContenedor} onChange={(e) => setEtaContenedor(e.target.value)} />
           </div>
         </div>
 

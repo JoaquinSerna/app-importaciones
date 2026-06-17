@@ -11,6 +11,7 @@ import { useToast } from "@/components/ui/use-toast";
 import type { ParametrosGlobales } from "@/lib/types";
 
 const CAMPOS: { key: keyof CrearParametrosInput; label: string; columnaSql: keyof ParametrosGlobales }[] = [
+  { key: "fleteInternacionalUsd", label: "Flete internacional (USD)", columnaSql: "flete_internacional_usd" },
   { key: "gastoTerminalUsd", label: "Gasto terminal (USD)", columnaSql: "gasto_terminal_usd" },
   { key: "fleteInternoUsd", label: "Flete interno (USD)", columnaSql: "flete_interno_usd" },
   { key: "seguroPct", label: "Seguro (%)", columnaSql: "seguro_pct" },
