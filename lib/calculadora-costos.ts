@@ -7,16 +7,34 @@ const CAPACIDAD_CONTENEDOR: Record<TipoContenedor, { cbm: number; kg: number }> 
   "AEREO": { cbm: Infinity, kg: Infinity },
 };
 
+/**
+ * Calcula el factor de contenedores.
+ * - contenedorLleno=true  → Math.ceil (se paga el contenedor entero aunque no esté lleno)
+ * - contenedorLleno=false → valor fraccionario (se paga proporcionalmente a la ocupación)
+ * Devuelve el factor como número (puede ser 0.5, 1.3, 2, etc.)
+ */
+export function calcularFactorContenedor(
+  cbm?: number,
+  pesoKg?: number,
+  tipo?: TipoContenedor,
+  contenedorLleno = true
+): number {
+  if (!tipo || tipo === "AEREO") return 1;
+  const cap = CAPACIDAD_CONTENEDOR[tipo];
+  const porCbm = cbm && cbm > 0 ? cbm / cap.cbm : 0;
+  const porPeso = pesoKg && pesoKg > 0 ? pesoKg / cap.kg : 0;
+  const factor = Math.max(porCbm, porPeso, 0);
+  if (factor === 0) return 1;
+  return contenedorLleno ? Math.ceil(factor) : parseFloat(factor.toFixed(4));
+}
+
+/** @deprecated usa calcularFactorContenedor */
 export function calcularCantContenedores(
   cbm?: number,
   pesoKg?: number,
   tipo?: TipoContenedor
 ): number {
-  if (!tipo || tipo === "AEREO") return 1;
-  const cap = CAPACIDAD_CONTENEDOR[tipo];
-  const porCbm = cbm && cbm > 0 ? Math.ceil(cbm / cap.cbm) : 0;
-  const porPeso = pesoKg && pesoKg > 0 ? Math.ceil(pesoKg / cap.kg) : 0;
-  return Math.max(porCbm, porPeso, 1);
+  return calcularFactorContenedor(cbm, pesoKg, tipo, true);
 }
 
 export interface DatosSimulacion {
@@ -25,6 +43,11 @@ export interface DatosSimulacion {
   pesoTotalKg?: number;
   ncm?: string;
   tipoContenedor?: TipoContenedor;
+  /**
+   * true  = se paga el contenedor entero (default). Ej: 35 CBM en un 40HQ → factor 1.
+   * false = proporcional. Ej: 35 CBM en un 40HQ → factor 0.5.
+   */
+  contenedorLleno?: boolean;
   /** Si se especifica, reemplaza al flete_internacional_usd de los parámetros. */
   fleteInternacionalUsd?: number;
   /** NCM con sus aranceles específicos. Requerido para calcular impuestos. */
@@ -52,7 +75,8 @@ export interface ResultadoCascada {
   thc: number;
   fleteLocal: number;
   tollImportacion: number;
-  cantContenedores: number;
+  factorContenedor: number; // puede ser fraccionario (0.5, 1.3) o entero (1, 2)
+  cantContenedores: number; // alias = factorContenedor
   depositoFiscal: number;
   digitalizacionDespacho: number;
   gastosOperativos: number;
@@ -96,13 +120,22 @@ export function calcularCascada(
   const fob = datos.fobTotalUsd || 0;
   const ncm = datos.ncmArancel ?? null;
 
-  // Tramo internacional
+  // Factor de contenedores (entero o fraccionario según modo)
+  const contenedorLleno = datos.contenedorLleno !== false; // default true
+  const factorContenedor = calcularFactorContenedor(
+    datos.cbmTotal,
+    datos.pesoTotalKg,
+    datos.tipoContenedor,
+    contenedorLleno
+  );
+
+  // Tramo internacional — los costos por contenedor se multiplican por el factor
   const fleteInternacional =
     datos.fleteInternacionalUsd !== undefined
-      ? datos.fleteInternacionalUsd
-      : (parametros.flete_internacional_usd || 0);
+      ? datos.fleteInternacionalUsd // flete manual = costo real, no se escala
+      : (parametros.flete_internacional_usd || 0) * factorContenedor;
 
-  const peakSeason = parametros.peak_season_usd || 0;
+  const peakSeason = (parametros.peak_season_usd || 0) * factorContenedor;
 
   const seguro =
     ((parametros.seguro_pct || 0) / 100) * (fob + fleteInternacional + peakSeason);
@@ -133,17 +166,13 @@ export function calcularCascada(
   const iibbPct = ncm?.aplica_iibb ? (ncm.iibb_pct ?? 0) : 0;
   const iibb = (iibbPct / 100) * baseImponibleIva;
 
-  // Gastos locales
-  const thc = parametros.thc_usd || 0;
-  const fleteLocal = parametros.flete_interno_usd || 0;
-  const tollImportacion = parametros.toll_importacion_usd || 0;
+  // Gastos locales — los que varían por contenedor se multiplican por factorContenedor
+  const thc = (parametros.thc_usd || 0) * factorContenedor;
+  const fleteLocal = (parametros.flete_interno_usd || 0) * factorContenedor;
+  const tollImportacion = (parametros.toll_importacion_usd || 0) * factorContenedor;
+  const depositoFiscal = (parametros.gasto_terminal_usd || 0) * factorContenedor;
 
-  const cantContenedores = calcularCantContenedores(
-    datos.cbmTotal,
-    datos.pesoTotalKg,
-    datos.tipoContenedor
-  );
-  const depositoFiscal = (parametros.gasto_terminal_usd || 0) * cantContenedores;
+  const cantContenedores = factorContenedor; // alias para mostrar en UI
 
   const digitalizacionDespacho = parametros.digitalizacion_usd || 0;
   const gastosOperativos = parametros.gastos_operativos_usd || 0;
@@ -199,6 +228,7 @@ export function calcularCascada(
     thc,
     fleteLocal,
     tollImportacion,
+    factorContenedor,
     cantContenedores,
     depositoFiscal,
     digitalizacionDespacho,
