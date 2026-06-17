@@ -13,6 +13,7 @@ const links = [
   { href: "/parametros", label: "Parámetros" },
   { href: "/ncm", label: "NCMs" },
   { href: "/reportes", label: "Reportes" },
+  { href: "/manual", label: "Manual" },
 ];
 
 export function MainNav() {
