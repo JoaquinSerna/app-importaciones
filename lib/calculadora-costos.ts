@@ -1,7 +1,7 @@
 // Cascada impositiva de importación en Argentina.
 // Funciones puras, testeables, sin dependencias externas.
 
-import type { CategoriaCosto, ParametrosGlobales } from "@/lib/types";
+import type { CategoriaCosto, NcmArancel, ParametrosGlobales } from "@/lib/types";
 
 export interface DatosSimulacion {
   fobTotalUsd: number;
@@ -10,7 +10,8 @@ export interface DatosSimulacion {
   ncm?: string;
   /** Si se especifica, se usa en lugar de gasto_terminal_usd + flete_interno_usd de parámetros. */
   fleteInternacionalUsd?: number;
-  ivaReducido?: boolean;
+  /** NCM con sus aranceles específicos. Requerido para calcular impuestos correctamente. */
+  ncmArancel?: NcmArancel | null;
 }
 
 export interface ResultadoCascada {
@@ -36,18 +37,22 @@ export interface ResultadoCascada {
 
 /**
  * Calcula la cascada completa de costos/impuestos de importación.
+ * Los aranceles (derecho, IVA, IVA adicional, ganancias, IIBB) se toman
+ * del NCM seleccionado. Los parámetros globales proveen solo los costos
+ * fijos del negocio.
+ *
  * Pasos:
  *  1. FOB
  *  2. Flete (internacional, manual o gasto_terminal + flete_interno de parámetros)
  *  3. Seguro = seguro_pct sobre (FOB + Flete)
  *  4. CIF = FOB + Flete + Seguro
- *  5. Derechos de importación = derecho_importacion_pct sobre CIF
- *  6. Tasa estadística = tasa_estadistica_pct sobre CIF, con tope (tasa_estadistica_tope_usd)
+ *  5. Derechos de importación = derecho_importacion_pct (del NCM) sobre CIF
+ *  6. Tasa estadística = tasa_estadistica_pct sobre CIF, con tope
  *  7. Base imponible IVA = CIF + Derechos + Tasa estadística
- *  8. IVA = iva_general_pct (o iva_pct_reducido si ivaReducido) sobre base imponible
- *  9. IVA adicional = iva_adicional_pct sobre base imponible
- * 10. Anticipo ganancias = anticipo_ganancias_pct sobre base imponible
- * 11. IIBB = iibb_pct sobre base imponible
+ *  8. IVA = iva_pct (del NCM) sobre base imponible
+ *  9. IVA adicional = iva_adicional_pct (del NCM, si aplica) sobre base imponible
+ * 10. Anticipo ganancias = anticipo_ganancias_pct (del NCM, si aplica) sobre base imponible
+ * 11. IIBB = iibb_pct (del NCM, si aplica) sobre base imponible
  * 12. Honorarios despachante = MAX(honorarios_despachante_pct% del FOB, honorarios_despachante_minimo_usd)
  * 13. Gastos bancarios = gastos_bancarios_pct sobre CIF
  */
@@ -56,6 +61,7 @@ export function calcularCascada(
   datos: DatosSimulacion
 ): ResultadoCascada {
   const fob = datos.fobTotalUsd || 0;
+  const ncm = datos.ncmArancel ?? null;
 
   const flete =
     datos.fleteInternacionalUsd !== undefined
@@ -66,7 +72,9 @@ export function calcularCascada(
 
   const cif = fob + flete + seguro;
 
-  const derechosImportacion = ((parametros.derecho_importacion_pct || 0) / 100) * cif;
+  // Aranceles: siempre del NCM si está disponible, sino 0
+  const derechoImportacionPct = ncm?.derecho_importacion_pct ?? 0;
+  const derechosImportacion = (derechoImportacionPct / 100) * cif;
 
   const tasaEstadisticaSinTope = ((parametros.tasa_estadistica_pct || 0) / 100) * cif;
   const tope = parametros.tasa_estadistica_tope_usd ?? 150;
@@ -74,16 +82,17 @@ export function calcularCascada(
 
   const baseImponibleIva = cif + derechosImportacion + tasaEstadistica;
 
-  const ivaPct = datos.ivaReducido
-    ? parametros.iva_pct_reducido ?? 10.5
-    : parametros.iva_general_pct ?? 21;
+  const ivaPct = ncm?.iva_pct ?? 21;
   const iva = (ivaPct / 100) * baseImponibleIva;
 
-  const ivaAdicional = ((parametros.iva_adicional_pct || 0) / 100) * baseImponibleIva;
+  const ivaAdicionalPct = ncm?.aplica_iva_adicional ? (ncm.iva_adicional_pct ?? 0) : 0;
+  const ivaAdicional = (ivaAdicionalPct / 100) * baseImponibleIva;
 
-  const anticipoGanancias = ((parametros.anticipo_ganancias_pct || 0) / 100) * baseImponibleIva;
+  const anticipoGananciasPct = ncm?.aplica_anticipo_ganancias ? (ncm.anticipo_ganancias_pct ?? 0) : 0;
+  const anticipoGanancias = (anticipoGananciasPct / 100) * baseImponibleIva;
 
-  const iibb = ((parametros.iibb_pct || 0) / 100) * baseImponibleIva;
+  const iibbPct = ncm?.aplica_iibb ? (ncm.iibb_pct ?? 0) : 0;
+  const iibb = (iibbPct / 100) * baseImponibleIva;
 
   const honorariosDespachante = Math.max(
     ((parametros.honorarios_despachante_pct ?? 1) / 100) * fob,

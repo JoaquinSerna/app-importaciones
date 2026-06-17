@@ -4,7 +4,7 @@ import { redirect } from "next/navigation";
 
 import { calcularCascada, costosComoLineas, type DatosSimulacion } from "@/lib/calculadora-costos";
 import { createClient } from "@/lib/supabase/server";
-import type { TipoContenedor } from "@/lib/types";
+import type { NcmArancel, TipoContenedor } from "@/lib/types";
 
 export interface CrearCarpetaInput {
   proveedorId?: string;
@@ -12,9 +12,10 @@ export interface CrearCarpetaInput {
   cbmTotal?: number;
   pesoTotalKg?: number;
   ncm?: string;
+  ncmId?: string;
+  ncmArancel?: NcmArancel | null;
   modalidad: TipoContenedor;
   fleteInternacionalUsd?: number;
-  ivaReducido: boolean;
 }
 
 /** Genera el próximo número de carpeta con formato IMP-{año}-{secuencial 3 dígitos}. */
@@ -72,7 +73,7 @@ export async function crearCarpetaDesdeSimulacion(input: CrearCarpetaInput) {
     pesoTotalKg: input.pesoTotalKg,
     ncm: input.ncm,
     fleteInternacionalUsd: input.fleteInternacionalUsd,
-    ivaReducido: input.ivaReducido,
+    ncmArancel: input.ncmArancel ?? null,
   };
   const resultado = calcularCascada(parametros, datos);
   const lineas = costosComoLineas(resultado);
@@ -91,6 +92,7 @@ export async function crearCarpetaDesdeSimulacion(input: CrearCarpetaInput) {
       cbm_total: input.cbmTotal ?? null,
       peso_total_kg: input.pesoTotalKg ?? null,
       ncm: input.ncm ?? null,
+      ncm_id: input.ncmId ?? null,
       parametros_snapshot_id: parametros.id,
       tc_snapshot: parametros.tc_usd_ars,
       estado: "simulacion",

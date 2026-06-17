@@ -43,8 +43,8 @@ export default async function ParametrosPage() {
       <div>
         <h1 className="text-2xl font-semibold">Parámetros globales</h1>
         <p className="text-muted-foreground">
-          Historial de versiones de parámetros usados en la cascada de costos. Es una tabla append-only:
-          nunca se edita una versión existente.
+          Historial de versiones de parámetros fijos del negocio. Los aranceles por posición NCM se
+          configuran en la sección NCMs. Es una tabla append-only: nunca se edita una versión existente.
         </p>
       </div>
 
@@ -72,11 +72,11 @@ export default async function ParametrosPage() {
                 <TableHead className="text-right">Gasto terminal</TableHead>
                 <TableHead className="text-right">Flete interno</TableHead>
                 <TableHead className="text-right">Seguro %</TableHead>
-                <TableHead className="text-right">Derecho imp. %</TableHead>
-                <TableHead className="text-right">IVA general %</TableHead>
-                <TableHead className="text-right">IVA reducido %</TableHead>
+                <TableHead className="text-right">Tasa est. %</TableHead>
+                <TableHead className="text-right">Tope est. USD</TableHead>
                 <TableHead className="text-right">Honorarios %</TableHead>
-                <TableHead className="text-right">Mín. honorarios</TableHead>
+                <TableHead className="text-right">Mín. honor.</TableHead>
+                <TableHead className="text-right">Bcos. %</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -87,11 +87,11 @@ export default async function ParametrosPage() {
                   <TableCell className="text-right">{p.gasto_terminal_usd}</TableCell>
                   <TableCell className="text-right">{p.flete_interno_usd}</TableCell>
                   <TableCell className="text-right">{p.seguro_pct}</TableCell>
-                  <TableCell className="text-right">{p.derecho_importacion_pct}</TableCell>
-                  <TableCell className="text-right">{p.iva_general_pct}</TableCell>
-                  <TableCell className="text-right">{p.iva_pct_reducido}</TableCell>
+                  <TableCell className="text-right">{p.tasa_estadistica_pct}</TableCell>
+                  <TableCell className="text-right">{p.tasa_estadistica_tope_usd}</TableCell>
                   <TableCell className="text-right">{p.honorarios_despachante_pct}</TableCell>
                   <TableCell className="text-right">{p.honorarios_despachante_minimo_usd}</TableCell>
+                  <TableCell className="text-right">{p.gastos_bancarios_pct}</TableCell>
                 </TableRow>
               ))}
               {historialList.length === 0 && (

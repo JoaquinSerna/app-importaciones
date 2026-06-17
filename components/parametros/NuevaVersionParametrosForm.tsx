@@ -14,18 +14,12 @@ const CAMPOS: { key: keyof CrearParametrosInput; label: string; columnaSql: keyo
   { key: "gastoTerminalUsd", label: "Gasto terminal (USD)", columnaSql: "gasto_terminal_usd" },
   { key: "fleteInternoUsd", label: "Flete interno (USD)", columnaSql: "flete_interno_usd" },
   { key: "seguroPct", label: "Seguro (%)", columnaSql: "seguro_pct" },
-  { key: "derechoImportacionPct", label: "Derecho de importación (%)", columnaSql: "derecho_importacion_pct" },
   { key: "tasaEstadisticaPct", label: "Tasa estadística (%)", columnaSql: "tasa_estadistica_pct" },
   {
     key: "tasaEstadisticaTopeUsd",
     label: "Tope tasa estadística (USD)",
     columnaSql: "tasa_estadistica_tope_usd",
   },
-  { key: "ivaGeneralPct", label: "IVA general (%)", columnaSql: "iva_general_pct" },
-  { key: "ivaPctReducido", label: "IVA reducido (%)", columnaSql: "iva_pct_reducido" },
-  { key: "ivaAdicionalPct", label: "IVA adicional (%)", columnaSql: "iva_adicional_pct" },
-  { key: "anticipoGananciasPct", label: "Anticipo ganancias (%)", columnaSql: "anticipo_ganancias_pct" },
-  { key: "iibbPct", label: "IIBB (%)", columnaSql: "iibb_pct" },
   {
     key: "honorariosDespachantePct",
     label: "Honorarios despachante (%)",
@@ -85,7 +79,8 @@ export function NuevaVersionParametrosForm({ ultimaVersion }: { ultimaVersion: P
       <CardHeader>
         <CardTitle className="text-base">Nueva versión de parámetros</CardTitle>
         <p className="text-sm text-muted-foreground">
-          Se inserta como una fila nueva; las versiones anteriores nunca se modifican.
+          Se inserta como una fila nueva; las versiones anteriores nunca se modifican. Los aranceles
+          por posición (derecho, IVA, etc.) se configuran en la sección NCMs.
         </p>
       </CardHeader>
       <CardContent className="space-y-4">

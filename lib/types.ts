@@ -38,20 +38,30 @@ export interface ParametrosGlobales {
   gasto_terminal_usd: number;
   flete_interno_usd: number;
   seguro_pct: number;
-  derecho_importacion_pct: number;
   tasa_estadistica_pct: number;
   tasa_estadistica_tope_usd: number;
-  iva_general_pct: number;
-  iva_pct_reducido: number;
-  iva_adicional_pct: number;
-  anticipo_ganancias_pct: number;
-  iibb_pct: number;
   honorarios_despachante_pct: number;
   honorarios_despachante_minimo_usd: number;
   tc_usd_ars: number;
   gastos_bancarios_pct: number;
   created_at: string;
   created_by: string | null;
+}
+
+export interface NcmArancel {
+  id: string;
+  codigo_ncm: string;
+  descripcion: string | null;
+  derecho_importacion_pct: number;
+  iva_pct: number;
+  aplica_iva_adicional: boolean;
+  iva_adicional_pct: number;
+  aplica_anticipo_ganancias: boolean;
+  anticipo_ganancias_pct: number;
+  aplica_iibb: boolean;
+  iibb_pct: number;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface Proveedor {
@@ -86,6 +96,7 @@ export interface Carpeta {
   cbm_total: number | null;
   peso_total_kg: number | null;
   ncm: string | null;
+  ncm_id: string | null;
   parametros_snapshot_id: string;
   tc_snapshot: number;
   contenedor_id: string | null;
