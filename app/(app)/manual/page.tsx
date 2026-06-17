@@ -70,8 +70,9 @@ export default function ManualPage() {
           headers={["Parámetro", "Descripción", "Ejemplo"]}
           rows={[
             ["TC USD/ARS", "Tipo de cambio dólar-peso", "1.200"],
-            ["Gasto terminal (USD)", "Costo fijo portuario", "250"],
-            ["Flete interno (USD)", "Transporte puerto-depósito La Plata", "400"],
+            ["Flete internacional (USD)", "Costo del flete marítimo/aéreo de referencia. Si no ingresás un flete manual en la simulación, se usa este valor.", "3.500"],
+            ["Gasto terminal (USD)", "Costo fijo portuario (THC, handling, etc.)", "250"],
+            ["Flete interno (USD)", "Transporte puerto-depósito", "400"],
             ["Seguro (%)", "% sobre FOB + Flete", "0,5%"],
             ["Honorarios despachante (%)", "% sobre FOB", "1%"],
             ["Mínimo honorarios (USD)", "Piso del honorario", "450"],
@@ -79,6 +80,9 @@ export default function ManualPage() {
           ]}
         />
         <p>Actualizalos cuando cambia el tipo de cambio, el flete o los honorarios. Cada actualización crea una <strong>nueva versión</strong> — las carpetas anteriores mantienen sus valores originales (snapshot).</p>
+        <Callout title="Cómo se usa el flete internacional en la simulación">
+          Si en la simulación no cargás un flete cotizado específico, el sistema suma automáticamente <strong>flete internacional + gasto terminal + flete interno</strong> de los parámetros. Si tenés una cotización real del flete, ingresala en el simulador y ese valor reemplaza al de los parámetros.
+        </Callout>
       </Section>
 
       <Section id="ncm" title="4. NCMs (Posiciones Arancelarias)">
@@ -142,12 +146,15 @@ export default function ManualPage() {
         />
         <p className="mt-4 font-medium">Tabs dentro de una carpeta:</p>
         <ul>
-          <li><strong>Resumen</strong> — Datos generales, FOB, estado, montos de pago.</li>
+          <li><strong>Resumen</strong> — Datos generales, FOB, estado, montos de pago. También muestra el <strong>número de BL</strong> (editable con un clic).</li>
           <li><strong>SKUs</strong> — Productos de la importación con sus datos (código, cantidad, precio unitario, CBM, peso).</li>
-          <li><strong>Costos</strong> — Estimado vs. real. Podés agregar costos manuales imprevistos.</li>
+          <li><strong>Costos</strong> — Estimado vs. real con variación. Podés cargar los costos reales del despacho y las facturas, y el sistema te muestra la diferencia contra la simulación original. También podés agregar costos manuales imprevistos.</li>
           <li><strong>Timeline</strong> — Fechas clave: pago anticipo, embarque, ETA, arribo, liberación, llegada a depósito.</li>
           <li><strong>Documentos</strong> — Factura comercial, packing list, BL, certificados, etc.</li>
         </ul>
+        <Callout title="Cómo cargar los costos reales">
+          Una vez que el despachante te manda la liquidación, entrá a la carpeta → tab <strong>Costos</strong>. Podés subir el PDF para que el sistema extraiga los valores automáticamente, o cargarlos a mano concepto por concepto. Al completar el monto real de cada línea, aparece la variación (diferencia en USD y porcentaje) contra lo que habías estimado en la simulación.
+        </Callout>
       </Section>
 
       <Section id="dashboard" title="7. Dashboard">
@@ -163,12 +170,21 @@ export default function ManualPage() {
       </Section>
 
       <Section id="contenedores" title="8. Contenedores">
-        <p>Usá los contenedores cuando agrupás varias carpetas en un mismo envío. Para un FCL generalmente hay una sola carpeta; para LCL puede haber varias.</p>
+        <p>Usá los contenedores para agrupar carpetas que viajan juntas. Tipos disponibles:</p>
+        <Table
+          headers={["Tipo", "Uso"]}
+          rows={[
+            ["40HQ", "Contenedor de 40 pies high cube — el más común para muebles y mercadería voluminosa"],
+            ["20HQ", "Contenedor de 20 pies high cube"],
+            ["Aéreo", "Envío por avión"],
+          ]}
+        />
         <ol>
-          <li>Creá el contenedor con los datos del barco (número, naviera, BL, fecha de zarpe, ETA).</li>
+          <li>Creá el contenedor con su número (correlativo, no puede ser menor al anterior), tipo, fecha de zarpe y ETA.</li>
           <li>Desde cada carpeta, asignala al contenedor correspondiente.</li>
-          <li>Los costos a nivel contenedor (ej: flete FCL) se prorratean entre las carpetas por CBM, peso, FOB o unidades.</li>
+          <li>Los costos a nivel contenedor (ej: flete del FCL) se prorratean entre las carpetas por CBM, peso, FOB o unidades.</li>
         </ol>
+        <p>El <strong>número de BL</strong> se carga en cada carpeta (tab Resumen), no en el contenedor.</p>
       </Section>
 
       <Section id="pdf" title="9. Extracción de liquidación del despachante">
