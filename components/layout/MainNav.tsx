@@ -11,6 +11,7 @@ const links = [
   { href: "/carpetas", label: "Carpetas" },
   { href: "/contenedores", label: "Contenedores" },
   { href: "/parametros", label: "Parámetros" },
+  { href: "/proveedores", label: "Proveedores" },
   { href: "/ncm", label: "NCMs" },
   { href: "/reportes", label: "Reportes" },
   { href: "/manual", label: "Manual" },
