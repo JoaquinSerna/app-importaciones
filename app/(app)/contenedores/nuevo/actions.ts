@@ -28,7 +28,7 @@ export async function crearContenedor(input: CrearContenedorInput) {
     .not("numero_contenedor", "is", null)
     .order("numero_contenedor", { ascending: false })
     .limit(1)
-    .single();
+    .maybeSingle();
 
   if (maxRow?.numero_contenedor) {
     const maxExistente = parseInt(maxRow.numero_contenedor, 10);
