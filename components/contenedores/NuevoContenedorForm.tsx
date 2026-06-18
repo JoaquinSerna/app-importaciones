@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { isRedirectError } from "next/dist/client/components/redirect";
+import { useRouter } from "next/navigation";
 
 import { crearContenedor } from "@/app/(app)/contenedores/nuevo/actions";
 import { Button } from "@/components/ui/button";
@@ -26,6 +26,7 @@ const TIPOS: { value: TipoContenedor; label: string }[] = [
 
 export function NuevoContenedorForm() {
   const { toast } = useToast();
+  const router = useRouter();
   const [isPending, startTransition] = useTransition();
 
   const [numeroContenedor, setNumeroContenedor] = useState("");
@@ -42,15 +43,15 @@ export function NuevoContenedorForm() {
 
     startTransition(async () => {
       try {
-        await crearContenedor({
+        const id = await crearContenedor({
           numeroContenedor: numeroContenedor.trim(),
           tipo,
           fechaZarpe: fechaZarpe || undefined,
           etaContenedor: etaContenedor || undefined,
           observaciones: observaciones || undefined,
         });
+        router.push(`/contenedores/${id}`);
       } catch (err) {
-        if (isRedirectError(err)) throw err;
         toast({
           title: "Error creando el contenedor",
           description: err instanceof Error ? err.message : "Error desconocido",

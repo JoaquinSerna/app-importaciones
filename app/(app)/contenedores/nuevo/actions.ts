@@ -1,7 +1,5 @@
 "use server";
 
-import { redirect } from "next/navigation";
-
 import { createClient } from "@/lib/supabase/server";
 import type { TipoContenedor } from "@/lib/types";
 
@@ -13,7 +11,7 @@ export interface CrearContenedorInput {
   observaciones?: string;
 }
 
-export async function crearContenedor(input: CrearContenedorInput) {
+export async function crearContenedor(input: CrearContenedorInput): Promise<string> {
   const supabase = createClient();
 
   const num = parseInt(input.numeroContenedor, 10);
@@ -55,5 +53,5 @@ export async function crearContenedor(input: CrearContenedorInput) {
     throw new Error(`Error creando el contenedor: ${error?.message}`);
   }
 
-  redirect(`/contenedores/${contenedor.id}`);
+  return contenedor.id;
 }
