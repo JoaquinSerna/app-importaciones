@@ -26,7 +26,7 @@ export default async function CarpetaDetallePage({ params }: { params: { id: str
 
   const { data: carpeta } = await supabase
     .from("carpetas")
-    .select("*, proveedores(nombre)")
+    .select("*, proveedores(nombre, foto_url)")
     .eq("id", params.id)
     .single();
 
@@ -47,7 +47,7 @@ export default async function CarpetaDetallePage({ params }: { params: { id: str
 
   const skusList = (skus ?? []) as Sku[];
   const costosList = (costos ?? []) as Costo[];
-  const carpetaTyped = carpeta as Carpeta & { proveedores?: { nombre: string } | null };
+  const carpetaTyped = carpeta as Carpeta & { proveedores?: { nombre: string; foto_url: string | null } | null };
 
   let cifEstimado: number | null = null;
   if (parametrosSnapshot) {
@@ -154,7 +154,11 @@ export default async function CarpetaDetallePage({ params }: { params: { id: str
         </TabsContent>
 
         <TabsContent value="documentos">
-          <Documentos carpetaId={carpetaTyped.id} documentos={(documentos ?? []) as Documento[]} />
+          <Documentos
+            carpetaId={carpetaTyped.id}
+            documentos={(documentos ?? []) as Documento[]}
+            proveedorFotoUrl={carpetaTyped.proveedores?.foto_url ?? null}
+          />
         </TabsContent>
       </Tabs>
     </div>

@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useTransition } from "react";
-import { CheckCircle, FileText, Image, Loader2, Upload, XCircle } from "lucide-react";
+import { CheckCircle, FileText, Image, Loader2, Upload, UserCircle, XCircle } from "lucide-react";
 
 import { eliminarDocumento, subirDocumento } from "@/app/(app)/carpetas/[id]/documentos/actions";
 import { Button } from "@/components/ui/button";
@@ -18,12 +18,6 @@ interface SlotConfig {
 }
 
 const SECCION_1: SlotConfig[] = [
-  {
-    tipo: "foto_contacto",
-    label: "Contacto del vendedor",
-    descripcion: "Foto de la tarjeta de visita o captura de WhatsApp",
-    acepta: "image/*",
-  },
   {
     tipo: "proforma_invoice",
     label: "Proforma Invoice",
@@ -186,9 +180,10 @@ function DocumentoSlot({
 interface DocumentosProps {
   carpetaId: string;
   documentos: Documento[];
+  proveedorFotoUrl?: string | null;
 }
 
-export function Documentos({ carpetaId, documentos }: DocumentosProps) {
+export function Documentos({ carpetaId, documentos, proveedorFotoUrl }: DocumentosProps) {
   const byTipo = Object.fromEntries(documentos.map((d) => [d.tipo, d])) as Partial<Record<TipoDocumento, Documento>>;
 
   return (
@@ -198,6 +193,33 @@ export function Documentos({ carpetaId, documentos }: DocumentosProps) {
           <CardTitle className="text-base">Sección 1 · Documentos del proveedor</CardTitle>
         </CardHeader>
         <CardContent className="space-y-2">
+          {/* Foto del proveedor — se gestiona desde la página de Proveedores */}
+          <div className="flex items-center gap-3 rounded-lg border p-3">
+            <div className={`mt-0.5 rounded-md p-2 ${proveedorFotoUrl ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground"}`}>
+              <Image className="h-4 w-4" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-medium">Contacto del vendedor</p>
+              {proveedorFotoUrl ? (
+                <div className="mt-1 flex items-center gap-2">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={proveedorFotoUrl} alt="Contacto" className="h-12 w-12 rounded object-cover border" />
+                  <span className="text-xs text-green-600 flex items-center gap-1">
+                    <CheckCircle className="h-3 w-3" /> Cargada desde Proveedores
+                  </span>
+                </div>
+              ) : (
+                <p className="text-xs text-muted-foreground">
+                  Subí la foto en <strong>Proveedores</strong> y aparecerá acá automáticamente.
+                </p>
+              )}
+            </div>
+            {!proveedorFotoUrl && (
+              <div className="shrink-0">
+                <UserCircle className="h-8 w-8 text-muted-foreground/40" />
+              </div>
+            )}
+          </div>
           {SECCION_1.map((slot) => (
             <DocumentoSlot key={slot.tipo} slot={slot} doc={byTipo[slot.tipo]} carpetaId={carpetaId} />
           ))}

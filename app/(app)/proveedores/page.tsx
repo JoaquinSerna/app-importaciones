@@ -6,7 +6,7 @@ export default async function ProveedoresPage() {
   const supabase = createClient();
   const { data } = await supabase
     .from("proveedores")
-    .select("id, nombre")
+    .select("id, nombre, foto_url")
     .order("nombre", { ascending: true });
 
   return (
