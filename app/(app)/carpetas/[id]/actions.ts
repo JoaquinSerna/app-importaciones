@@ -45,9 +45,23 @@ export async function agregarCostoManual(input: AgregarCostoInput) {
 
 export async function asignarContenedor(carpetaId: string, contenedorId: string | null) {
   const supabase = createClient();
+
+  let fecha_embarque: string | null = null;
+  let eta: string | null = null;
+
+  if (contenedorId) {
+    const { data: cont } = await supabase
+      .from("contenedores")
+      .select("fecha_zarpe, eta_contenedor")
+      .eq("id", contenedorId)
+      .single();
+    fecha_embarque = cont?.fecha_zarpe ?? null;
+    eta = cont?.eta_contenedor ?? null;
+  }
+
   const { error } = await supabase
     .from("carpetas")
-    .update({ contenedor_id: contenedorId })
+    .update({ contenedor_id: contenedorId, fecha_embarque, eta })
     .eq("id", carpetaId);
   if (error) throw new Error(error.message);
   revalidatePath(`/carpetas/${carpetaId}`);
