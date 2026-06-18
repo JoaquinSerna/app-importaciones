@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { isRedirectError } from "next/dist/client/components/redirect";
 
 import { crearContenedor } from "@/app/(app)/contenedores/nuevo/actions";
 import { Button } from "@/components/ui/button";
@@ -49,6 +50,7 @@ export function NuevoContenedorForm() {
           observaciones: observaciones || undefined,
         });
       } catch (err) {
+        if (isRedirectError(err)) throw err;
         toast({
           title: "Error creando el contenedor",
           description: err instanceof Error ? err.message : "Error desconocido",
