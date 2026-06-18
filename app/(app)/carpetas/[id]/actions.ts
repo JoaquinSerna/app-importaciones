@@ -43,6 +43,11 @@ export async function agregarCostoManual(input: AgregarCostoInput) {
   revalidatePath(`/carpetas/${input.carpetaId}`);
 }
 
+const CAPACIDAD_CBM: Record<string, number> = {
+  "40HQ": 67,
+  "20HQ": 28,
+};
+
 export async function asignarContenedor(carpetaId: string, contenedorId: string | null) {
   const supabase = createClient();
 
@@ -52,11 +57,40 @@ export async function asignarContenedor(carpetaId: string, contenedorId: string 
   if (contenedorId) {
     const { data: cont } = await supabase
       .from("contenedores")
-      .select("fecha_zarpe, eta_contenedor")
+      .select("fecha_zarpe, eta_contenedor, tipo")
       .eq("id", contenedorId)
       .single();
+
     fecha_embarque = cont?.fecha_zarpe ?? null;
     eta = cont?.eta_contenedor ?? null;
+
+    // Validar capacidad CBM si el tipo tiene límite
+    const cap = cont?.tipo ? (CAPACIDAD_CBM[cont.tipo] ?? 0) : 0;
+    if (cap > 0) {
+      // CBM de la carpeta que queremos asignar
+      const { data: carpeta } = await supabase
+        .from("carpetas")
+        .select("cbm_total")
+        .eq("id", carpetaId)
+        .single();
+      const cbmCarpeta = carpeta?.cbm_total ?? 0;
+
+      // CBM ya usado por otras carpetas en ese contenedor (excluyendo la carpeta actual por si ya estaba asignada)
+      const { data: otrasCarpetas } = await supabase
+        .from("carpetas")
+        .select("cbm_total")
+        .eq("contenedor_id", contenedorId)
+        .neq("id", carpetaId);
+      const cbmUsado = (otrasCarpetas ?? []).reduce((acc, c) => acc + (c.cbm_total ?? 0), 0);
+
+      if (cbmUsado + cbmCarpeta > cap) {
+        throw new Error(
+          `No hay espacio suficiente: el contenedor tiene ${cap} m³ de capacidad, ` +
+          `ya tiene ${cbmUsado.toFixed(1)} m³ ocupados y esta carpeta ocupa ${cbmCarpeta.toFixed(1)} m³ ` +
+          `(total ${(cbmUsado + cbmCarpeta).toFixed(1)} m³).`
+        );
+      }
+    }
   }
 
   const { error } = await supabase
