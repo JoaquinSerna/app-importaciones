@@ -4,6 +4,7 @@ import { BlEditor } from "@/components/carpetas/BlEditor";
 import { ContenedorSelector } from "@/components/carpetas/ContenedorSelector";
 import { CostosTable } from "@/components/carpetas/CostosTable";
 import { Documentos } from "@/components/carpetas/Documentos";
+import { SeccionComparacion } from "@/components/carpetas/SeccionComparacion";
 import { SkusTable } from "@/components/carpetas/SkusTable";
 import { Timeline } from "@/components/carpetas/Timeline";
 import { Badge } from "@/components/ui/badge";
@@ -35,7 +36,7 @@ export default async function CarpetaDetallePage({ params }: { params: { id: str
     notFound();
   }
 
-  const [{ data: skus }, { data: costos }, { data: parametrosSnapshot }, { data: documentos }, { data: contenedores }] = await Promise.all([
+  const [{ data: skus }, { data: costos }, { data: parametrosSnapshot }, { data: documentos }, { data: contenedores }, { data: comparacionItems }] = await Promise.all([
     supabase.from("skus").select("*").eq("carpeta_id", params.id),
     supabase.from("costos").select("*").eq("carpeta_id", params.id).order("created_at"),
     supabase
@@ -45,6 +46,7 @@ export default async function CarpetaDetallePage({ params }: { params: { id: str
       .single(),
     supabase.from("documentos").select("*").eq("carpeta_id", params.id).order("created_at"),
     supabase.from("contenedores").select("id, numero_contenedor, tipo").order("numero_contenedor"),
+    supabase.from("comparacion_items").select("*").eq("carpeta_id", params.id).order("created_at"),
   ]);
 
   const skusList = (skus ?? []) as Sku[];
@@ -82,6 +84,7 @@ export default async function CarpetaDetallePage({ params }: { params: { id: str
           <TabsTrigger value="costos">Costos</TabsTrigger>
           <TabsTrigger value="timeline">Timeline</TabsTrigger>
           <TabsTrigger value="documentos">Documentos</TabsTrigger>
+          <TabsTrigger value="comparacion">Sección 3</TabsTrigger>
         </TabsList>
 
         <TabsContent value="resumen">
@@ -173,6 +176,20 @@ export default async function CarpetaDetallePage({ params }: { params: { id: str
             carpetaId={carpetaTyped.id}
             documentos={(documentos ?? []) as Documento[]}
             proveedorFotoUrl={carpetaTyped.proveedores?.foto_url ?? null}
+          />
+        </TabsContent>
+
+        <TabsContent value="comparacion">
+          <SeccionComparacion
+            carpetaId={carpetaTyped.id}
+            comparacionGuardada={(comparacionItems ?? []) as {
+              concepto_real: string;
+              concepto_simulado: string | null;
+              monto_real_usd: number;
+              monto_simulado_usd: number | null;
+              fuente: string;
+              es_nuevo: boolean;
+            }[]}
           />
         </TabsContent>
       </Tabs>
