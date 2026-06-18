@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 
 import { BlEditor } from "@/components/carpetas/BlEditor";
+import { ContenedorSelector } from "@/components/carpetas/ContenedorSelector";
 import { CostosTable } from "@/components/carpetas/CostosTable";
 import { Documentos } from "@/components/carpetas/Documentos";
 import { SkusTable } from "@/components/carpetas/SkusTable";
@@ -34,7 +35,7 @@ export default async function CarpetaDetallePage({ params }: { params: { id: str
     notFound();
   }
 
-  const [{ data: skus }, { data: costos }, { data: parametrosSnapshot }, { data: documentos }] = await Promise.all([
+  const [{ data: skus }, { data: costos }, { data: parametrosSnapshot }, { data: documentos }, { data: contenedores }] = await Promise.all([
     supabase.from("skus").select("*").eq("carpeta_id", params.id),
     supabase.from("costos").select("*").eq("carpeta_id", params.id).order("created_at"),
     supabase
@@ -43,6 +44,7 @@ export default async function CarpetaDetallePage({ params }: { params: { id: str
       .eq("id", (carpeta as Carpeta).parametros_snapshot_id)
       .single(),
     supabase.from("documentos").select("*").eq("carpeta_id", params.id).order("created_at"),
+    supabase.from("contenedores").select("id, numero_contenedor, tipo").order("numero_contenedor"),
   ]);
 
   const skusList = (skus ?? []) as Sku[];
@@ -115,6 +117,19 @@ export default async function CarpetaDetallePage({ params }: { params: { id: str
               <CardContent className="text-xl font-semibold">{formatFecha(carpetaTyped.eta)}</CardContent>
             </Card>
           </div>
+
+          <Card className="mt-4">
+            <CardHeader>
+              <CardTitle className="text-base">Contenedor</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <ContenedorSelector
+                carpetaId={carpetaTyped.id}
+                contenedorIdActual={carpetaTyped.contenedor_id ?? null}
+                contenedores={(contenedores ?? []) as { id: string; numero_contenedor: string | null; tipo: string }[]}
+              />
+            </CardContent>
+          </Card>
 
           <Card className="mt-4">
             <CardHeader>
