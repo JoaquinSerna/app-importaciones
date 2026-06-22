@@ -34,11 +34,11 @@ const DEFAULTS: NcmArancelInput = {
   descripcion: "",
   derecho_importacion_pct: 0,
   iva_pct: 21,
-  aplica_iva_adicional: false,
+  aplica_iva_adicional: true,
   iva_adicional_pct: 0,
-  aplica_anticipo_ganancias: false,
+  aplica_anticipo_ganancias: true,
   anticipo_ganancias_pct: 0,
-  aplica_iibb: false,
+  aplica_iibb: true,
   iibb_pct: 0,
   aplica_tasa_estadistica: true,
   tasa_estadistica_pct: 3,
@@ -84,13 +84,23 @@ export function NcmDialog({ ncm, trigger }: NcmDialogProps) {
       return;
     }
 
+    // Las alícuotas siempre se cargan completas. Qué se cobra realmente
+    // (bien de uso vs. bien de cambio) se decide después, por carpeta.
+    const payload: NcmArancelInput = {
+      ...form,
+      aplica_iva_adicional: true,
+      aplica_anticipo_ganancias: true,
+      aplica_iibb: true,
+      aplica_tasa_estadistica: true,
+    };
+
     startTransition(async () => {
       try {
         if (ncm) {
-          await actualizarNcm(ncm.id, form);
+          await actualizarNcm(ncm.id, payload);
           toast({ title: "NCM actualizado correctamente" });
         } else {
-          await crearNcm(form);
+          await crearNcm(payload);
           toast({ title: "NCM creado correctamente" });
         }
         setOpen(false);
@@ -160,112 +170,57 @@ export function NcmDialog({ ncm, trigger }: NcmDialogProps) {
             </Select>
           </div>
 
-          {/* IVA Adicional */}
-          <div className="space-y-2 rounded-md border p-3">
-            <div className="flex items-center gap-2">
-              <input
-                id="aplica_iva_adicional"
-                type="checkbox"
-                checked={form.aplica_iva_adicional}
-                onChange={(e) => set("aplica_iva_adicional", e.target.checked)}
-                className="h-4 w-4 rounded border-input"
+          <p className="text-xs text-muted-foreground">
+            Cargá todas las alícuotas siempre. Si la importación es &ldquo;bien de uso&rdquo;, la app va a cobrar
+            solo derechos + IVA y va a ignorar estas automáticamente — no hace falta decidirlo acá.
+          </p>
+
+          <div className="grid grid-cols-3 gap-4">
+            <div className="space-y-2">
+              <Label htmlFor="iva_adicional_pct">IVA adicional (%)</Label>
+              <Input
+                id="iva_adicional_pct"
+                type="number"
+                min="0"
+                step="0.01"
+                value={form.iva_adicional_pct}
+                onChange={(e) => set("iva_adicional_pct", parseFloat(e.target.value) || 0)}
               />
-              <Label htmlFor="aplica_iva_adicional">Aplica IVA adicional</Label>
             </div>
-            {form.aplica_iva_adicional && (
-              <div className="space-y-2 pt-2">
-                <Label htmlFor="iva_adicional_pct">IVA adicional (%)</Label>
-                <Input
-                  id="iva_adicional_pct"
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  value={form.iva_adicional_pct}
-                  onChange={(e) => set("iva_adicional_pct", parseFloat(e.target.value) || 0)}
-                />
-              </div>
-            )}
+            <div className="space-y-2">
+              <Label htmlFor="anticipo_ganancias_pct">Anticipo ganancias (%)</Label>
+              <Input
+                id="anticipo_ganancias_pct"
+                type="number"
+                min="0"
+                step="0.01"
+                value={form.anticipo_ganancias_pct}
+                onChange={(e) => set("anticipo_ganancias_pct", parseFloat(e.target.value) || 0)}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="iibb_pct">IIBB (%)</Label>
+              <Input
+                id="iibb_pct"
+                type="number"
+                min="0"
+                step="0.01"
+                value={form.iibb_pct}
+                onChange={(e) => set("iibb_pct", parseFloat(e.target.value) || 0)}
+              />
+            </div>
           </div>
 
-          {/* Anticipo Ganancias */}
-          <div className="space-y-2 rounded-md border p-3">
-            <div className="flex items-center gap-2">
-              <input
-                id="aplica_anticipo_ganancias"
-                type="checkbox"
-                checked={form.aplica_anticipo_ganancias}
-                onChange={(e) => set("aplica_anticipo_ganancias", e.target.checked)}
-                className="h-4 w-4 rounded border-input"
-              />
-              <Label htmlFor="aplica_anticipo_ganancias">Aplica anticipo ganancias</Label>
-            </div>
-            {form.aplica_anticipo_ganancias && (
-              <div className="space-y-2 pt-2">
-                <Label htmlFor="anticipo_ganancias_pct">Anticipo ganancias (%)</Label>
-                <Input
-                  id="anticipo_ganancias_pct"
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  value={form.anticipo_ganancias_pct}
-                  onChange={(e) => set("anticipo_ganancias_pct", parseFloat(e.target.value) || 0)}
-                />
-              </div>
-            )}
-          </div>
-
-          {/* IIBB */}
-          <div className="space-y-2 rounded-md border p-3">
-            <div className="flex items-center gap-2">
-              <input
-                id="aplica_iibb"
-                type="checkbox"
-                checked={form.aplica_iibb}
-                onChange={(e) => set("aplica_iibb", e.target.checked)}
-                className="h-4 w-4 rounded border-input"
-              />
-              <Label htmlFor="aplica_iibb">Aplica IIBB</Label>
-            </div>
-            {form.aplica_iibb && (
-              <div className="space-y-2 pt-2">
-                <Label htmlFor="iibb_pct">IIBB (%)</Label>
-                <Input
-                  id="iibb_pct"
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  value={form.iibb_pct}
-                  onChange={(e) => set("iibb_pct", parseFloat(e.target.value) || 0)}
-                />
-              </div>
-            )}
-          </div>
-
-          {/* Tasa Estadística */}
-          <div className="space-y-2 rounded-md border p-3">
-            <div className="flex items-center gap-2">
-              <input
-                id="aplica_tasa_estadistica"
-                type="checkbox"
-                checked={form.aplica_tasa_estadistica}
-                onChange={(e) => set("aplica_tasa_estadistica", e.target.checked)}
-                className="h-4 w-4 rounded border-input"
-              />
-              <Label htmlFor="aplica_tasa_estadistica">Aplica Tasa Estadística</Label>
-            </div>
-            {form.aplica_tasa_estadistica && (
-              <div className="space-y-2 pt-2">
-                <Label htmlFor="tasa_estadistica_pct">Tasa estadística (%)</Label>
-                <Input
-                  id="tasa_estadistica_pct"
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  value={form.tasa_estadistica_pct}
-                  onChange={(e) => set("tasa_estadistica_pct", parseFloat(e.target.value) || 0)}
-                />
-              </div>
-            )}
+          <div className="space-y-2">
+            <Label htmlFor="tasa_estadistica_pct">Tasa estadística (%)</Label>
+            <Input
+              id="tasa_estadistica_pct"
+              type="number"
+              min="0"
+              step="0.01"
+              value={form.tasa_estadistica_pct}
+              onChange={(e) => set("tasa_estadistica_pct", parseFloat(e.target.value) || 0)}
+            />
           </div>
 
           <div className="flex justify-end gap-2">
