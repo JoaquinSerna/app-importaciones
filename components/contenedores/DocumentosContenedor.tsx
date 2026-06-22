@@ -71,7 +71,7 @@ function fmtVal(key: string, val: unknown): string {
   }
   if (key === "totales" && typeof val === "object" && val !== null) {
     const t = val as Record<string, unknown>;
-    return `FOB USD ${Number(t.fob_usd ?? 0).toLocaleString("es-AR")} | Tributos ARS ${Number(t.total_tributos_ars ?? 0).toLocaleString("es-AR")}`;
+    return `FOB USD ${Number(t.fob_usd ?? 0).toLocaleString("es-AR")} | Tributos USD ${Number(t.total_tributos_usd ?? 0).toLocaleString("es-AR")}`;
   }
   return String(val);
 }
@@ -304,7 +304,6 @@ export function DocumentosContenedor({ contenedorId, documentos }: DocumentosCon
             <div className="border-t pt-2 flex justify-between items-center">
               <span className="text-sm font-medium">Total tributos</span>
               <span className="text-base font-bold">USD {Number(totales.total_tributos_usd ?? 0).toLocaleString("es-AR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-            </div>
             </div>
           </CardContent>
         </Card>
