@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 
+import { obtenerUrlDescarga } from "@/app/actions/storage";
 import { BlEditor } from "@/components/carpetas/BlEditor";
 import { ContenedorSelector } from "@/components/carpetas/ContenedorSelector";
 import { CostosTable } from "@/components/carpetas/CostosTable";
@@ -52,6 +53,9 @@ export default async function CarpetaDetallePage({ params }: { params: { id: str
   const skusList = (skus ?? []) as Sku[];
   const costosList = (costos ?? []) as Costo[];
   const carpetaTyped = carpeta as Carpeta & { proveedores?: { nombre: string; foto_url: string | null } | null };
+
+  const fotoUrlOriginal = carpetaTyped.proveedores?.foto_url ?? null;
+  const proveedorFotoUrl = fotoUrlOriginal ? await obtenerUrlDescarga(fotoUrlOriginal) : null;
 
   let cifEstimado: number | null = null;
   if (parametrosSnapshot) {
@@ -175,7 +179,7 @@ export default async function CarpetaDetallePage({ params }: { params: { id: str
           <Documentos
             carpetaId={carpetaTyped.id}
             documentos={(documentos ?? []) as Documento[]}
-            proveedorFotoUrl={carpetaTyped.proveedores?.foto_url ?? null}
+            proveedorFotoUrl={proveedorFotoUrl}
           />
         </TabsContent>
 

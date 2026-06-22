@@ -7,6 +7,7 @@ import {
   eliminarDocumentoContenedor,
   subirDocumentoContenedor,
 } from "@/app/(app)/contenedores/[id]/documentos/actions";
+import { obtenerUrlDescarga } from "@/app/actions/storage";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useToast } from "@/components/ui/use-toast";
@@ -148,6 +149,22 @@ function DocumentoSlot({
     });
   }
 
+  function handleDescargar() {
+    if (!doc) return;
+    startTransition(async () => {
+      try {
+        const url = await obtenerUrlDescarga(doc.file_url);
+        window.open(url, "_blank", "noopener,noreferrer");
+      } catch (err) {
+        toast({
+          title: "Error al descargar",
+          description: err instanceof Error ? err.message : "Error desconocido",
+          variant: "destructive",
+        });
+      }
+    });
+  }
+
   return (
     <div className="flex items-start gap-3 rounded-lg border p-3">
       <div
@@ -207,11 +224,9 @@ function DocumentoSlot({
           </Button>
         ) : (
           <div className="flex gap-1">
-            <a href={doc.file_url} target="_blank" rel="noopener noreferrer" download={doc.file_name}>
-              <Button size="sm" variant="ghost" title="Descargar">
-                <Download className="h-3 w-3" />
-              </Button>
-            </a>
+            <Button size="sm" variant="ghost" disabled={isPending} onClick={handleDescargar} title="Descargar">
+              {isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Download className="h-3 w-3" />}
+            </Button>
             <Button
               size="sm"
               variant="ghost"
