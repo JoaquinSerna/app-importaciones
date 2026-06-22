@@ -31,7 +31,11 @@ export function ContenedorSelector({ carpetaId, contenedorIdActual, contenedores
     const newId = value === "ninguno" ? null : value;
     startTransition(async () => {
       try {
-        await asignarContenedor(carpetaId, newId);
+        const resultado = await asignarContenedor(carpetaId, newId);
+        if (resultado.error) {
+          toast({ title: "No se pudo asignar", description: resultado.error, variant: "destructive" });
+          return;
+        }
         toast({ title: "Contenedor actualizado" });
       } catch (err) {
         toast({

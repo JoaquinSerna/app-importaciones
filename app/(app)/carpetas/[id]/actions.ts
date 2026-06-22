@@ -4,14 +4,18 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import type { CategoriaCosto } from "@/lib/types";
 
-export async function actualizarBlCarpeta(carpetaId: string, blNumber: string) {
+export async function actualizarBlCarpeta(carpetaId: string, blNumber: string): Promise<{ error?: string }> {
   const supabase = createClient();
   const { error } = await supabase
     .from("carpetas")
     .update({ bl_number: blNumber.trim() || null })
     .eq("id", carpetaId);
-  if (error) throw new Error(`Error actualizando BL: ${error.message}`);
+  if (error) {
+    console.error("actualizarBlCarpeta", error);
+    return { error: `Error actualizando BL: ${error.message}` };
+  }
   revalidatePath(`/carpetas/${carpetaId}`);
+  return {};
 }
 
 export interface AgregarCostoInput {
@@ -23,7 +27,7 @@ export interface AgregarCostoInput {
   notas?: string;
 }
 
-export async function agregarCostoManual(input: AgregarCostoInput) {
+export async function agregarCostoManual(input: AgregarCostoInput): Promise<{ error?: string }> {
   const supabase = createClient();
   const { data: userData } = await supabase.auth.getUser();
   const userId = userData?.user?.id ?? null;
@@ -39,8 +43,12 @@ export async function agregarCostoManual(input: AgregarCostoInput) {
     notas: input.notas ?? null,
     created_by: userId,
   });
-  if (error) throw new Error(`Error agregando costo: ${error.message}`);
+  if (error) {
+    console.error("agregarCostoManual", error);
+    return { error: `Error agregando costo: ${error.message}` };
+  }
   revalidatePath(`/carpetas/${input.carpetaId}`);
+  return {};
 }
 
 const CAPACIDAD_CBM: Record<string, number> = {
@@ -61,17 +69,24 @@ export async function actualizarFechaCarpeta(
   carpetaId: string,
   campo: CampoFechaCarpeta,
   valor: string | null
-) {
+): Promise<{ error?: string }> {
   const supabase = createClient();
   const { error } = await supabase
     .from("carpetas")
     .update({ [campo]: valor })
     .eq("id", carpetaId);
-  if (error) throw new Error(error.message);
+  if (error) {
+    console.error("actualizarFechaCarpeta", error);
+    return { error: error.message };
+  }
   revalidatePath(`/carpetas/${carpetaId}`);
+  return {};
 }
 
-export async function asignarContenedor(carpetaId: string, contenedorId: string | null) {
+export async function asignarContenedor(
+  carpetaId: string,
+  contenedorId: string | null
+): Promise<{ error?: string }> {
   const supabase = createClient();
 
   let fecha_embarque: string | null = null;
@@ -80,7 +95,7 @@ export async function asignarContenedor(carpetaId: string, contenedorId: string 
   if (contenedorId) {
     const { data: cont } = await supabase
       .from("contenedores")
-      .select("fecha_zarpe, eta_contenedor, tipo")
+      .select("fecha_zarpe, eta_contenedor, tipo, numero_contenedor")
       .eq("id", contenedorId)
       .single();
 
@@ -107,11 +122,13 @@ export async function asignarContenedor(carpetaId: string, contenedorId: string 
       const cbmUsado = (otrasCarpetas ?? []).reduce((acc, c) => acc + (c.cbm_total ?? 0), 0);
 
       if (cbmUsado + cbmCarpeta > cap) {
-        throw new Error(
-          `No hay espacio suficiente: el contenedor tiene ${cap} m³ de capacidad, ` +
-          `ya tiene ${cbmUsado.toFixed(1)} m³ ocupados y esta carpeta ocupa ${cbmCarpeta.toFixed(1)} m³ ` +
-          `(total ${(cbmUsado + cbmCarpeta).toFixed(1)} m³).`
-        );
+        const disponible = cap - cbmUsado;
+        return {
+          error:
+            `No hay espacio suficiente en el contenedor #${cont?.numero_contenedor ?? "—"} (${cont?.tipo}): ` +
+            `capacidad ${cap} m³, ya tiene ${cbmUsado.toFixed(1)} m³ ocupados (disponible ${disponible.toFixed(1)} m³), ` +
+            `y esta carpeta necesita ${cbmCarpeta.toFixed(1)} m³.`,
+        };
       }
     }
   }
@@ -120,6 +137,10 @@ export async function asignarContenedor(carpetaId: string, contenedorId: string 
     .from("carpetas")
     .update({ contenedor_id: contenedorId, fecha_embarque, eta })
     .eq("id", carpetaId);
-  if (error) throw new Error(error.message);
+  if (error) {
+    console.error("asignarContenedor", error);
+    return { error: error.message };
+  }
   revalidatePath(`/carpetas/${carpetaId}`);
+  return {};
 }

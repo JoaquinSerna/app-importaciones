@@ -43,7 +43,10 @@ function FechaEditor({
     const value = e.target.value || null;
     startTransition(async () => {
       try {
-        await actualizarFechaCarpeta(carpetaId, hito.campo, value);
+        const resultado = await actualizarFechaCarpeta(carpetaId, hito.campo, value);
+        if (resultado.error) {
+          toast({ title: "Error", description: resultado.error, variant: "destructive" });
+        }
       } catch (err) {
         toast({
           title: "Error",

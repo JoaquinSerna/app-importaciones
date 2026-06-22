@@ -54,7 +54,7 @@ export function AgregarCostoDialog({ carpetaId }: { carpetaId: string }) {
 
     startTransition(async () => {
       try {
-        await agregarCostoManual({
+        const resultado = await agregarCostoManual({
           carpetaId,
           concepto,
           categoria,
@@ -62,6 +62,10 @@ export function AgregarCostoDialog({ carpetaId }: { carpetaId: string }) {
           montoRealUsd: montoReal ? parseFloat(montoReal) : undefined,
           notas: notas || undefined,
         });
+        if (resultado.error) {
+          toast({ title: "Error", description: resultado.error, variant: "destructive" });
+          return;
+        }
         toast({ title: "Costo agregado" });
         setOpen(false);
         setConcepto("");
@@ -72,6 +76,7 @@ export function AgregarCostoDialog({ carpetaId }: { carpetaId: string }) {
         toast({
           title: "Error",
           description: err instanceof Error ? err.message : "Error desconocido",
+          variant: "destructive",
         });
       }
     });

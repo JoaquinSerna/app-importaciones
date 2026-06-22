@@ -15,11 +15,15 @@ export function BlEditor({ carpetaId, blActual }: { carpetaId: string; blActual:
   function handleGuardar() {
     startTransition(async () => {
       try {
-        await actualizarBlCarpeta(carpetaId, bl);
+        const resultado = await actualizarBlCarpeta(carpetaId, bl);
+        if (resultado.error) {
+          toast({ title: "Error", description: resultado.error, variant: "destructive" });
+          return;
+        }
         setEditando(false);
         toast({ title: "BL actualizado" });
       } catch (err) {
-        toast({ title: "Error", description: err instanceof Error ? err.message : "Error desconocido" });
+        toast({ title: "Error", description: err instanceof Error ? err.message : "Error desconocido", variant: "destructive" });
       }
     });
   }
