@@ -29,19 +29,17 @@ const CAPACIDAD_CBM: Record<string, number> = {
 export default async function ContenedoresPage() {
   const supabase = createClient();
 
-  const [{ data: contenedores }, { data: carpetas }] = await Promise.all([
+  const [{ data: contenedores }, { data: asignaciones }] = await Promise.all([
     supabase.from("contenedores").select("*").order("created_at", { ascending: false }),
-    supabase.from("carpetas").select("id, contenedor_id, cbm_total"),
+    supabase.from("carpeta_contenedores").select("contenedor_id, cbm_asignado"),
   ]);
 
   const lista = (contenedores ?? []) as Contenedor[];
 
   // CBM usado por contenedor
   const cbmUsado = new Map<string, number>();
-  for (const c of carpetas ?? []) {
-    if (c.contenedor_id) {
-      cbmUsado.set(c.contenedor_id, (cbmUsado.get(c.contenedor_id) ?? 0) + (c.cbm_total ?? 0));
-    }
+  for (const a of asignaciones ?? []) {
+    cbmUsado.set(a.contenedor_id, (cbmUsado.get(a.contenedor_id) ?? 0) + (a.cbm_asignado ?? 0));
   }
 
   return (

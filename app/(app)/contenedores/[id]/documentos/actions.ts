@@ -38,23 +38,23 @@ async function sincronizarCostosRealesDeDespacho(
   const tributos = itemsCostosConfirmados.filter((i) => !esValorMercaderia(i.concepto));
   if (tributos.length === 0) return;
 
-  const { data: carpetas } = await supabase
-    .from("carpetas")
-    .select("id, cbm_total")
+  const { data: asignaciones } = await supabase
+    .from("carpeta_contenedores")
+    .select("carpeta_id, cbm_asignado")
     .eq("contenedor_id", contenedorId);
-  if (!carpetas || carpetas.length === 0) return;
+  if (!asignaciones || asignaciones.length === 0) return;
 
-  const cbmTotal = carpetas.reduce((a, c) => a + (c.cbm_total ?? 0), 0);
+  const cbmTotal = asignaciones.reduce((a, c) => a + (c.cbm_asignado ?? 0), 0);
 
-  for (const carpeta of carpetas) {
-    const cbmProporcion = cbmTotal > 0 && carpeta.cbm_total
-      ? carpeta.cbm_total / cbmTotal
-      : 1 / carpetas.length;
+  for (const asignacion of asignaciones) {
+    const cbmProporcion = cbmTotal > 0
+      ? asignacion.cbm_asignado / cbmTotal
+      : 1 / asignaciones.length;
 
     const { data: costos } = await supabase
       .from("costos")
       .select("id, concepto")
-      .eq("carpeta_id", carpeta.id);
+      .eq("carpeta_id", asignacion.carpeta_id);
     if (!costos || costos.length === 0) continue;
 
     for (const grupo of TRIBUTO_KEYWORDS) {
@@ -78,7 +78,7 @@ async function sincronizarCostosRealesDeDespacho(
       await supabase.from("costos").update({ monto_real_usd: montoUsd }).eq("id", costo.id);
     }
 
-    revalidatePath(`/carpetas/${carpeta.id}`);
+    revalidatePath(`/carpetas/${asignacion.carpeta_id}`);
   }
 }
 

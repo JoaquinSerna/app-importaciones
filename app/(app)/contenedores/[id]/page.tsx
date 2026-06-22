@@ -41,17 +41,23 @@ export default async function ContenedorDetallePage({ params }: { params: { id: 
 
   const contenedorTyped = contenedor as Contenedor;
 
-  const [{ data: carpetas }, { data: costosContenedor }, { data: criterios }, { data: documentos }] = await Promise.all([
+  const [{ data: asignacionesCarpetas }, { data: costosContenedor }, { data: criterios }, { data: documentos }] = await Promise.all([
     supabase
-      .from("carpetas")
-      .select("*, proveedores(nombre)")
+      .from("carpeta_contenedores")
+      .select("cbm_asignado, carpetas(*, proveedores(nombre))")
       .eq("contenedor_id", params.id),
     supabase.from("costos").select("*").eq("nivel", "contenedor").eq("contenedor_id", params.id),
     supabase.from("criterios_prorrateo").select("*").eq("contenedor_id", params.id),
     supabase.from("documentos").select("*").eq("contenedor_id", params.id).order("created_at"),
   ]);
 
-  const carpetasList = (carpetas ?? []) as (Carpeta & { proveedores?: { nombre: string } | null })[];
+  type CarpetaConProveedor = Carpeta & { proveedores?: { nombre: string } | null };
+  const carpetasList = (asignacionesCarpetas ?? [])
+    .filter((a) => a.carpetas)
+    .map((a) => ({
+      ...(a.carpetas as unknown as CarpetaConProveedor),
+      cbm_asignado_aqui: a.cbm_asignado as number,
+    }));
   const costosList = (costosContenedor ?? []) as Costo[];
   const criteriosList = (criterios ?? []) as CriterioProrrateo[];
 
@@ -62,7 +68,7 @@ export default async function ContenedorDetallePage({ params }: { params: { id: 
 
   const carpetasParaProrrateo = carpetasList.map((c) => ({
     id: c.id,
-    cbm: c.cbm_total ?? 0,
+    cbm: c.cbm_asignado_aqui,
     peso: c.peso_total_kg ?? 0,
     fob: c.fob_total_usd ?? 0,
   }));
@@ -84,7 +90,7 @@ export default async function ContenedorDetallePage({ params }: { params: { id: 
   }
 
   const totalCostosContenedor = costosList.reduce((acc, c) => acc + c.monto_estimado_usd, 0);
-  const cbmTotalContenedor = carpetasList.reduce((acc, c) => acc + (c.cbm_total ?? 0), 0);
+  const cbmTotalContenedor = carpetasList.reduce((acc, c) => acc + c.cbm_asignado_aqui, 0);
 
   const documentosTyped = (documentos ?? []) as Documento[];
 
@@ -156,7 +162,7 @@ export default async function ContenedorDetallePage({ params }: { params: { id: 
                 <TableHead>Carpeta</TableHead>
                 <TableHead>Proveedor</TableHead>
                 <TableHead className="text-right">FOB</TableHead>
-                <TableHead className="text-right">CBM</TableHead>
+                <TableHead className="text-right">CBM en este contenedor</TableHead>
                 <TableHead className="text-right">Peso (kg)</TableHead>
                 <TableHead className="text-right">Costos contenedor prorrateados</TableHead>
               </TableRow>
@@ -168,10 +174,13 @@ export default async function ContenedorDetallePage({ params }: { params: { id: 
                     <Link href={`/carpetas/${c.id}`} className="font-medium hover:underline">
                       {c.numero_carpeta}
                     </Link>
+                    {c.cbm_total != null && c.cbm_asignado_aqui < c.cbm_total - 0.01 && (
+                      <span className="ml-1 text-xs text-muted-foreground">(repartida en varios contenedores)</span>
+                    )}
                   </TableCell>
                   <TableCell>{c.proveedores?.nombre ?? "-"}</TableCell>
                   <TableCell className="text-right">{formatUsd(c.fob_total_usd)}</TableCell>
-                  <TableCell className="text-right">{(c.cbm_total ?? 0).toFixed(2)}</TableCell>
+                  <TableCell className="text-right">{c.cbm_asignado_aqui.toFixed(2)}</TableCell>
                   <TableCell className="text-right">{(c.peso_total_kg ?? 0).toFixed(1)}</TableCell>
                   <TableCell className="text-right">
                     {formatUsd(totalAsignadoPorCarpeta.get(c.id) ?? 0)}

@@ -96,6 +96,14 @@ export interface Contenedor {
   created_at: string;
 }
 
+export interface CarpetaContenedor {
+  id: string;
+  carpeta_id: string;
+  contenedor_id: string;
+  cbm_asignado: number;
+  created_at: string;
+}
+
 export interface Carpeta {
   id: string;
   numero_carpeta: string;

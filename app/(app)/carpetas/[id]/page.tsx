@@ -2,7 +2,7 @@ import { notFound } from "next/navigation";
 
 import { obtenerUrlDescarga } from "@/app/actions/storage";
 import { BlEditor } from "@/components/carpetas/BlEditor";
-import { ContenedorSelector } from "@/components/carpetas/ContenedorSelector";
+import { ContenedoresMultiSelector } from "@/components/carpetas/ContenedoresMultiSelector";
 import { CostosTable } from "@/components/carpetas/CostosTable";
 import { Documentos } from "@/components/carpetas/Documentos";
 import { SeccionComparacion } from "@/components/carpetas/SeccionComparacion";
@@ -37,7 +37,7 @@ export default async function CarpetaDetallePage({ params }: { params: { id: str
     notFound();
   }
 
-  const [{ data: skus }, { data: costos }, { data: parametrosSnapshot }, { data: documentos }, { data: contenedores }, { data: comparacionItems }] = await Promise.all([
+  const [{ data: skus }, { data: costos }, { data: parametrosSnapshot }, { data: documentos }, { data: contenedores }, { data: comparacionItems }, { data: asignacionesContenedor }] = await Promise.all([
     supabase.from("skus").select("*").eq("carpeta_id", params.id),
     supabase.from("costos").select("*").eq("carpeta_id", params.id).order("created_at"),
     supabase
@@ -48,6 +48,7 @@ export default async function CarpetaDetallePage({ params }: { params: { id: str
     supabase.from("documentos").select("*").eq("carpeta_id", params.id).order("created_at"),
     supabase.from("contenedores").select("id, numero_contenedor, tipo").order("numero_contenedor"),
     supabase.from("comparacion_items").select("*").eq("carpeta_id", params.id).order("created_at"),
+    supabase.from("carpeta_contenedores").select("contenedor_id, cbm_asignado").eq("carpeta_id", params.id),
   ]);
 
   const skusList = (skus ?? []) as Sku[];
@@ -127,12 +128,16 @@ export default async function CarpetaDetallePage({ params }: { params: { id: str
 
           <Card className="mt-4">
             <CardHeader>
-              <CardTitle className="text-base">Contenedor</CardTitle>
+              <CardTitle className="text-base">Contenedor(es)</CardTitle>
             </CardHeader>
             <CardContent>
-              <ContenedorSelector
+              <ContenedoresMultiSelector
                 carpetaId={carpetaTyped.id}
-                contenedorIdActual={carpetaTyped.contenedor_id ?? null}
+                cbmTotalCarpeta={carpetaTyped.cbm_total ?? 0}
+                asignacionesActuales={(asignacionesContenedor ?? []).map((a) => ({
+                  contenedorId: a.contenedor_id,
+                  cbm: a.cbm_asignado,
+                }))}
                 contenedores={(contenedores ?? []) as { id: string; numero_contenedor: string | null; tipo: string }[]}
               />
             </CardContent>

@@ -61,33 +61,106 @@ export async function analizarCostosReales(carpetaId: string): Promise<Resultado
     .eq("carpeta_id", carpetaId)
     .eq("estado", "extraido");
 
-  // 4. Documentos del contenedor + proporción CBM
-  let docsContenedor: { tipo: string; datos_extraidos: Record<string, unknown> | null }[] = [];
-  let cbmProporcion = 1;
+  // 4. Contenedores asignados a esta carpeta (puede ser más de uno, cada uno con su CBM)
+  const { data: asignaciones } = await supabase
+    .from("carpeta_contenedores")
+    .select("contenedor_id, cbm_asignado, contenedores(numero_contenedor)")
+    .eq("carpeta_id", carpetaId);
 
-  if (carpeta.contenedor_id) {
-    const [{ data: docsContData }, { data: carpetasCont }] = await Promise.all([
-      supabase
-        .from("documentos")
-        .select("tipo, datos_extraidos")
-        .eq("contenedor_id", carpeta.contenedor_id)
-        .eq("estado", "extraido"),
-      supabase
-        .from("carpetas")
-        .select("cbm_total")
-        .eq("contenedor_id", carpeta.contenedor_id),
-    ]);
-    docsContenedor = (docsContData ?? []) as typeof docsContenedor;
-    const cbmTotalCont = (carpetasCont ?? []).reduce((a, c) => a + (c.cbm_total ?? 0), 0);
-    if (cbmTotalCont > 0 && carpeta.cbm_total) {
-      cbmProporcion = carpeta.cbm_total / cbmTotalCont;
-    }
-  } else {
-    advertencias.push("Esta carpeta no está asignada a ningún contenedor. Los costos de logística y despachante no pueden prorratearse.");
-  }
-
-  // 5. Construir lista de costos reales para Claude
   const costosReales: { concepto: string; monto_usd: number; fuente: string }[] = [];
+  let cbmProporcionPromedio = 1;
+
+  if (!asignaciones || asignaciones.length === 0) {
+    advertencias.push("Esta carpeta no está asignada a ningún contenedor. Los costos de logística y despachante no pueden prorratearse.");
+  } else {
+    for (const asignacion of asignaciones) {
+      const numeroCont = (asignacion.contenedores as unknown as { numero_contenedor: string | null } | null)?.numero_contenedor ?? "—";
+
+      const [{ data: docsContData }, { data: cbmsCont }] = await Promise.all([
+        supabase
+          .from("documentos")
+          .select("tipo, datos_extraidos")
+          .eq("contenedor_id", asignacion.contenedor_id)
+          .eq("estado", "extraido"),
+        supabase
+          .from("carpeta_contenedores")
+          .select("cbm_asignado")
+          .eq("contenedor_id", asignacion.contenedor_id),
+      ]);
+      const docsContenedor = (docsContData ?? []) as { tipo: string; datos_extraidos: Record<string, unknown> | null }[];
+      const cbmTotalCont = (cbmsCont ?? []).reduce((a, c) => a + (c.cbm_asignado ?? 0), 0);
+      const cbmProporcion = cbmTotalCont > 0 ? asignacion.cbm_asignado / cbmTotalCont : 1;
+      const sufijoContenedor = asignaciones.length > 1 ? ` [contenedor #${numeroCont}]` : "";
+
+      // Factura logística → prorateada por CBM
+      const factLog = docsContenedor.find(d => d.tipo === "factura_logistica");
+      if (factLog?.datos_extraidos) {
+        const conceptos = factLog.datos_extraidos.conceptos as { descripcion: string; monto: number; moneda: string }[] | undefined;
+        if (conceptos?.length) {
+          for (const c of conceptos) {
+            const monto = Number(c.monto ?? 0) * cbmProporcion;
+            if (monto > 0) {
+              costosReales.push({
+                concepto: c.descripcion,
+                monto_usd: monto,
+                fuente: `Factura logística${cbmProporcion < 0.999 ? ` (${(cbmProporcion * 100).toFixed(0)}% del contenedor)` : ""}${sufijoContenedor}`,
+              });
+            }
+          }
+        } else {
+          const total = Number(factLog.datos_extraidos.monto_total ?? 0) * cbmProporcion;
+          if (total > 0) costosReales.push({ concepto: "Gastos logísticos", monto_usd: total, fuente: `Factura logística${sufijoContenedor}` });
+        }
+      } else {
+        advertencias.push(`No se encontró Factura logística extraída en el contenedor #${numeroCont}.`);
+      }
+
+      // Factura despachante → prorateada (el SAF es solo adelanto, NO se suma)
+      const factDesp = docsContenedor.find(d => d.tipo === "factura_despachante");
+      if (factDesp?.datos_extraidos) {
+        const conceptos = factDesp.datos_extraidos.conceptos as { descripcion: string; monto: number; moneda: string }[] | undefined;
+        if (conceptos?.length) {
+          for (const c of conceptos) {
+            const monto = Number(c.monto ?? 0) * cbmProporcion;
+            if (monto > 0) {
+              costosReales.push({
+                concepto: c.descripcion,
+                monto_usd: monto,
+                fuente: `Factura despachante${cbmProporcion < 0.999 ? ` (${(cbmProporcion * 100).toFixed(0)}%)` : ""}${sufijoContenedor}`,
+              });
+            }
+          }
+        } else {
+          const total = Number(factDesp.datos_extraidos.monto_total ?? 0) * cbmProporcion;
+          if (total > 0) costosReales.push({ concepto: "Honorarios y gastos despachante", monto_usd: total, fuente: `Factura despachante${sufijoContenedor}` });
+        }
+      } else {
+        advertencias.push(`No se encontró Factura del despachante extraída en el contenedor #${numeroCont}.`);
+      }
+
+      // Despacho de aduana → impuestos reales en USD (prorateados por CBM), ya confirmados por el usuario
+      const despacho = docsContenedor.find(d => d.tipo === "despacho_aduana");
+      if (despacho?.datos_extraidos?.monedas_confirmadas) {
+        const itemsConfirmados = despacho.datos_extraidos.items_costos_confirmados as
+          | { concepto: string; monto_usd: number }[]
+          | undefined;
+        if (itemsConfirmados) {
+          const esValorMercaderia = (c: string) => /fob|flete|seguro|cif/i.test(c);
+          for (const item of itemsConfirmados) {
+            if (esValorMercaderia(item.concepto)) continue;
+            const monto = item.monto_usd * cbmProporcion;
+            if (monto > 0) costosReales.push({ concepto: item.concepto, monto_usd: monto, fuente: `Despacho de aduana${sufijoContenedor}` });
+          }
+        }
+      } else if (despacho) {
+        advertencias.push(`El despacho de aduana del contenedor #${numeroCont} está cargado pero falta confirmar la moneda de cada costo (en la pestaña Documentos del contenedor).`);
+      } else {
+        advertencias.push(`No se encontró Despacho de aduana extraído en el contenedor #${numeroCont}.`);
+      }
+
+      cbmProporcionPromedio = cbmProporcion;
+    }
+  }
 
   // FOB real → Proforma Invoice (nunca comprobantes)
   const proforma = (docsCarpeta ?? []).find(d => d.tipo === "proforma_invoice");
@@ -97,72 +170,6 @@ export async function analizarCostosReales(carpetaId: string): Promise<Resultado
     else advertencias.push("La Proforma Invoice está cargada pero no se pudo extraer el FOB total.");
   } else {
     advertencias.push("No se encontró Proforma Invoice extraída. El FOB real no puede determinarse.");
-  }
-
-  // Factura logística → prorateada por CBM
-  const factLog = docsContenedor.find(d => d.tipo === "factura_logistica");
-  if (factLog?.datos_extraidos) {
-    const conceptos = factLog.datos_extraidos.conceptos as { descripcion: string; monto: number; moneda: string }[] | undefined;
-    if (conceptos?.length) {
-      for (const c of conceptos) {
-        const monto = Number(c.monto ?? 0) * cbmProporcion;
-        if (monto > 0) {
-          costosReales.push({
-            concepto: c.descripcion,
-            monto_usd: monto,
-            fuente: `Factura logística${cbmProporcion < 0.999 ? ` (${(cbmProporcion * 100).toFixed(0)}% del contenedor)` : ""}`,
-          });
-        }
-      }
-    } else {
-      const total = Number(factLog.datos_extraidos.monto_total ?? 0) * cbmProporcion;
-      if (total > 0) costosReales.push({ concepto: "Gastos logísticos", monto_usd: total, fuente: "Factura logística" });
-    }
-  } else if (carpeta.contenedor_id) {
-    advertencias.push("No se encontró Factura logística extraída en el contenedor.");
-  }
-
-  // Factura despachante → prorateada (el SAF es solo adelanto, NO se suma)
-  const factDesp = docsContenedor.find(d => d.tipo === "factura_despachante");
-  if (factDesp?.datos_extraidos) {
-    const conceptos = factDesp.datos_extraidos.conceptos as { descripcion: string; monto: number; moneda: string }[] | undefined;
-    if (conceptos?.length) {
-      for (const c of conceptos) {
-        const monto = Number(c.monto ?? 0) * cbmProporcion;
-        if (monto > 0) {
-          costosReales.push({
-            concepto: c.descripcion,
-            monto_usd: monto,
-            fuente: `Factura despachante${cbmProporcion < 0.999 ? ` (${(cbmProporcion * 100).toFixed(0)}%)` : ""}`,
-          });
-        }
-      }
-    } else {
-      const total = Number(factDesp.datos_extraidos.monto_total ?? 0) * cbmProporcion;
-      if (total > 0) costosReales.push({ concepto: "Honorarios y gastos despachante", monto_usd: total, fuente: "Factura despachante" });
-    }
-  } else if (carpeta.contenedor_id) {
-    advertencias.push("No se encontró Factura del despachante extraída en el contenedor.");
-  }
-
-  // Despacho de aduana → impuestos reales en USD (prorateados por CBM), ya confirmados por el usuario
-  const despacho = docsContenedor.find(d => d.tipo === "despacho_aduana");
-  if (despacho?.datos_extraidos?.monedas_confirmadas) {
-    const itemsConfirmados = despacho.datos_extraidos.items_costos_confirmados as
-      | { concepto: string; monto_usd: number }[]
-      | undefined;
-    if (itemsConfirmados) {
-      const esValorMercaderia = (c: string) => /fob|flete|seguro|cif/i.test(c);
-      for (const item of itemsConfirmados) {
-        if (esValorMercaderia(item.concepto)) continue;
-        const monto = item.monto_usd * cbmProporcion;
-        if (monto > 0) costosReales.push({ concepto: item.concepto, monto_usd: monto, fuente: "Despacho de aduana" });
-      }
-    }
-  } else if (carpeta.contenedor_id && despacho) {
-    advertencias.push("El despacho de aduana está cargado pero falta confirmar la moneda de cada costo (en la pestaña Documentos del contenedor).");
-  } else if (carpeta.contenedor_id) {
-    advertencias.push("No se encontró Despacho de aduana extraído en el contenedor.");
   }
 
   if (costosReales.length === 0) {
@@ -221,7 +228,7 @@ Respondé SOLO con JSON válido, sin texto adicional:
   if (!jsonMatch) throw new Error("La IA no devolvió un resultado válido");
 
   const result = JSON.parse(jsonMatch[0]) as { items: ItemPropuesto[] };
-  return { items: result.items, cbm_proporcion: cbmProporcion, advertencias };
+  return { items: result.items, cbm_proporcion: cbmProporcionPromedio, advertencias };
 }
 
 export async function guardarComparacion(carpetaId: string, items: ItemPropuesto[]) {

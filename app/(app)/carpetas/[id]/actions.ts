@@ -83,64 +83,114 @@ export async function actualizarFechaCarpeta(
   return {};
 }
 
-export async function asignarContenedor(
+export interface AsignacionContenedorInput {
+  contenedorId: string;
+  cbm: number;
+}
+
+// Una carpeta (compra/factura) puede repartirse entre varios contenedores,
+// cada uno con su porción de CBM. Reemplaza por completo las asignaciones previas.
+export async function asignarContenedores(
   carpetaId: string,
-  contenedorId: string | null
+  asignaciones: AsignacionContenedorInput[]
 ): Promise<{ error?: string }> {
   const supabase = createClient();
 
-  let fecha_embarque: string | null = null;
-  let eta: string | null = null;
+  const { data: carpeta } = await supabase
+    .from("carpetas")
+    .select("cbm_total")
+    .eq("id", carpetaId)
+    .single();
+  const cbmTotalCarpeta = carpeta?.cbm_total ?? 0;
 
-  if (contenedorId) {
+  const sumaAsignada = asignaciones.reduce((acc, a) => acc + a.cbm, 0);
+  if (cbmTotalCarpeta > 0 && sumaAsignada > cbmTotalCarpeta + 0.01) {
+    return {
+      error: `El CBM repartido entre contenedores (${sumaAsignada.toFixed(1)} m³) supera el CBM total de la carpeta (${cbmTotalCarpeta.toFixed(1)} m³).`,
+    };
+  }
+
+  // Validar capacidad de cada contenedor (considerando lo ya ocupado por OTRAS carpetas)
+  for (const asignacion of asignaciones) {
     const { data: cont } = await supabase
       .from("contenedores")
-      .select("fecha_zarpe, eta_contenedor, tipo, numero_contenedor")
-      .eq("id", contenedorId)
+      .select("tipo, numero_contenedor")
+      .eq("id", asignacion.contenedorId)
       .single();
-
-    fecha_embarque = cont?.fecha_zarpe ?? null;
-    eta = cont?.eta_contenedor ?? null;
-
-    // Validar capacidad CBM si el tipo tiene límite
     const cap = cont?.tipo ? (CAPACIDAD_CBM[cont.tipo] ?? 0) : 0;
-    if (cap > 0) {
-      // CBM de la carpeta que queremos asignar
-      const { data: carpeta } = await supabase
-        .from("carpetas")
-        .select("cbm_total")
-        .eq("id", carpetaId)
-        .single();
-      const cbmCarpeta = carpeta?.cbm_total ?? 0;
+    if (cap <= 0) continue;
 
-      // CBM ya usado por otras carpetas en ese contenedor (excluyendo la carpeta actual por si ya estaba asignada)
-      const { data: otrasCarpetas } = await supabase
-        .from("carpetas")
-        .select("cbm_total")
-        .eq("contenedor_id", contenedorId)
-        .neq("id", carpetaId);
-      const cbmUsado = (otrasCarpetas ?? []).reduce((acc, c) => acc + (c.cbm_total ?? 0), 0);
+    const { data: otrasAsignaciones } = await supabase
+      .from("carpeta_contenedores")
+      .select("cbm_asignado")
+      .eq("contenedor_id", asignacion.contenedorId)
+      .neq("carpeta_id", carpetaId);
+    const cbmUsado = (otrasAsignaciones ?? []).reduce((acc, a) => acc + (a.cbm_asignado ?? 0), 0);
 
-      if (cbmUsado + cbmCarpeta > cap) {
-        const disponible = cap - cbmUsado;
-        return {
-          error:
-            `No hay espacio suficiente en el contenedor #${cont?.numero_contenedor ?? "—"} (${cont?.tipo}): ` +
-            `capacidad ${cap} m³, ya tiene ${cbmUsado.toFixed(1)} m³ ocupados (disponible ${disponible.toFixed(1)} m³), ` +
-            `y esta carpeta necesita ${cbmCarpeta.toFixed(1)} m³.`,
-        };
-      }
+    if (cbmUsado + asignacion.cbm > cap) {
+      const disponible = cap - cbmUsado;
+      return {
+        error:
+          `No hay espacio suficiente en el contenedor #${cont?.numero_contenedor ?? "—"} (${cont?.tipo}): ` +
+          `capacidad ${cap} m³, ya tiene ${cbmUsado.toFixed(1)} m³ ocupados (disponible ${disponible.toFixed(1)} m³), ` +
+          `y le estás asignando ${asignacion.cbm.toFixed(1)} m³.`,
+      };
     }
+  }
+
+  // Reemplazar todas las asignaciones existentes de esta carpeta
+  const { error: deleteError } = await supabase
+    .from("carpeta_contenedores")
+    .delete()
+    .eq("carpeta_id", carpetaId);
+  if (deleteError) {
+    console.error("asignarContenedores: delete", deleteError);
+    return { error: deleteError.message };
+  }
+
+  if (asignaciones.length > 0) {
+    const { error: insertError } = await supabase.from("carpeta_contenedores").insert(
+      asignaciones.map((a) => ({
+        carpeta_id: carpetaId,
+        contenedor_id: a.contenedorId,
+        cbm_asignado: a.cbm,
+      }))
+    );
+    if (insertError) {
+      console.error("asignarContenedores: insert", insertError);
+      return { error: insertError.message };
+    }
+  }
+
+  // Sincronizar fechas: si hay un solo contenedor, tomamos sus fechas;
+  // si hay varios, embarque = la más temprana, eta = la más tardía (el envío
+  // no está completo hasta que llega el último contenedor).
+  let fecha_embarque: string | null = null;
+  let eta: string | null = null;
+  if (asignaciones.length > 0) {
+    const { data: contenedores } = await supabase
+      .from("contenedores")
+      .select("fecha_zarpe, eta_contenedor")
+      .in("id", asignaciones.map((a) => a.contenedorId));
+    const fechasZarpe = (contenedores ?? []).map((c) => c.fecha_zarpe).filter((f): f is string => !!f);
+    const fechasEta = (contenedores ?? []).map((c) => c.eta_contenedor).filter((f): f is string => !!f);
+    fecha_embarque = fechasZarpe.length > 0 ? fechasZarpe.sort()[0] : null;
+    eta = fechasEta.length > 0 ? fechasEta.sort().slice(-1)[0] : null;
   }
 
   const { error } = await supabase
     .from("carpetas")
-    .update({ contenedor_id: contenedorId, fecha_embarque, eta })
+    .update({ fecha_embarque, eta })
     .eq("id", carpetaId);
   if (error) {
-    console.error("asignarContenedor", error);
+    console.error("asignarContenedores: update fechas", error);
     return { error: error.message };
   }
+
   revalidatePath(`/carpetas/${carpetaId}`);
+  revalidatePath("/contenedores");
+  for (const a of asignaciones) {
+    revalidatePath(`/contenedores/${a.contenedorId}`);
+  }
   return {};
 }
