@@ -43,18 +43,27 @@ export function NuevoContenedorForm() {
 
     startTransition(async () => {
       try {
-        const id = await crearContenedor({
+        const resultado = await crearContenedor({
           numeroContenedor: numeroContenedor.trim(),
           tipo,
           fechaZarpe: fechaZarpe || undefined,
           etaContenedor: etaContenedor || undefined,
           observaciones: observaciones || undefined,
         });
-        router.push(`/contenedores/${id}`);
+        if (resultado.error) {
+          toast({
+            title: "Error creando el contenedor",
+            description: resultado.error,
+            variant: "destructive",
+          });
+          return;
+        }
+        router.push(`/contenedores/${resultado.id}`);
       } catch (err) {
         toast({
           title: "Error creando el contenedor",
           description: err instanceof Error ? err.message : "Error desconocido",
+          variant: "destructive",
         });
       }
     });

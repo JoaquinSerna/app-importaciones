@@ -11,12 +11,14 @@ export interface CrearContenedorInput {
   observaciones?: string;
 }
 
-export async function crearContenedor(input: CrearContenedorInput): Promise<string> {
+export type CrearContenedorResultado = { id: string; error?: undefined } | { id?: undefined; error: string };
+
+export async function crearContenedor(input: CrearContenedorInput): Promise<CrearContenedorResultado> {
   const supabase = createClient();
 
   const num = parseInt(input.numeroContenedor, 10);
   if (isNaN(num) || num <= 0) {
-    throw new Error("El número de contenedor debe ser un número entero positivo.");
+    return { error: "El número de contenedor debe ser un número entero positivo." };
   }
 
   // Verificar que sea mayor al máximo existente
@@ -31,9 +33,9 @@ export async function crearContenedor(input: CrearContenedorInput): Promise<stri
   if (maxRow?.numero_contenedor) {
     const maxExistente = parseInt(maxRow.numero_contenedor, 10);
     if (!isNaN(maxExistente) && num <= maxExistente) {
-      throw new Error(
-        `El número de contenedor debe ser mayor al último registrado (${maxExistente}). Ingresaste ${num}.`
-      );
+      return {
+        error: `El número de contenedor debe ser mayor al último registrado (${maxExistente}). Ingresaste ${num}.`,
+      };
     }
   }
 
@@ -50,8 +52,9 @@ export async function crearContenedor(input: CrearContenedorInput): Promise<stri
     .single();
 
   if (error || !contenedor) {
-    throw new Error(`Error creando el contenedor: ${error?.message}`);
+    console.error("crearContenedor: error insertando contenedor", error);
+    return { error: `Error creando el contenedor: ${error?.message ?? "desconocido"}` };
   }
 
-  return contenedor.id;
+  return { id: contenedor.id };
 }

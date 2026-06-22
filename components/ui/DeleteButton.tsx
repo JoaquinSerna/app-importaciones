@@ -18,7 +18,7 @@ import { useToast } from "@/components/ui/use-toast";
 interface DeleteButtonProps {
   label?: string;
   description?: string;
-  onDelete: () => Promise<void>;
+  onDelete: () => Promise<void | { error?: string }>;
 }
 
 export function DeleteButton({ label = "Eliminar", description, onDelete }: DeleteButtonProps) {
@@ -29,7 +29,12 @@ export function DeleteButton({ label = "Eliminar", description, onDelete }: Dele
   function handleConfirm() {
     startTransition(async () => {
       try {
-        await onDelete();
+        const resultado = await onDelete();
+        if (resultado && "error" in resultado && resultado.error) {
+          toast({ title: "No se pudo eliminar", description: resultado.error, variant: "destructive" });
+          setOpen(false);
+          return;
+        }
         setOpen(false);
       } catch (err) {
         toast({
