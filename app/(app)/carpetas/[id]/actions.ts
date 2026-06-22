@@ -52,7 +52,7 @@ export async function agregarCostoManual(input: AgregarCostoInput): Promise<{ er
 }
 
 const CAPACIDAD_CBM: Record<string, number> = {
-  "40HQ": 67,
+  "40HQ": 70,
   "20HQ": 28,
 };
 
