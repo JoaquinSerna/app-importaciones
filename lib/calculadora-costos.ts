@@ -37,6 +37,45 @@ export function calcularCantContenedores(
   return calcularFactorContenedor(cbm, pesoKg, tipo, true);
 }
 
+/**
+ * Cuando una carpeta tiene SKUs con NCM distintos, construye un NCM "sintético"
+ * con las alícuotas promediadas, ponderadas por el FOB de cada SKU
+ * (cantidad × precio_unitario_fob_usd). Así la cascada de impuestos refleja
+ * la mezcla real de productos en vez de asumir un solo NCM para toda la carpeta.
+ */
+export function calcularArancelPonderado(
+  skus: { fobUsd: number; ncm: NcmArancel | null }[]
+): NcmArancel | null {
+  const conNcm = skus.filter((s) => s.ncm && s.fobUsd > 0);
+  if (conNcm.length === 0) return null;
+
+  const fobTotal = conNcm.reduce((acc, s) => acc + s.fobUsd, 0);
+  if (fobTotal <= 0) return conNcm[0].ncm;
+
+  const ponderar = (campo: keyof NcmArancel) =>
+    conNcm.reduce((acc, s) => acc + (s.fobUsd / fobTotal) * (Number(s.ncm![campo]) || 0), 0);
+
+  const algunAplica = (campo: keyof NcmArancel) => conNcm.some((s) => Boolean(s.ncm![campo]));
+
+  return {
+    id: "ponderado",
+    codigo_ncm: conNcm.map((s) => s.ncm!.codigo_ncm).join(" + "),
+    descripcion: "NCM ponderado por FOB (varios SKUs)",
+    derecho_importacion_pct: ponderar("derecho_importacion_pct"),
+    iva_pct: ponderar("iva_pct"),
+    aplica_iva_adicional: algunAplica("aplica_iva_adicional"),
+    iva_adicional_pct: ponderar("iva_adicional_pct"),
+    aplica_anticipo_ganancias: algunAplica("aplica_anticipo_ganancias"),
+    anticipo_ganancias_pct: ponderar("anticipo_ganancias_pct"),
+    aplica_iibb: algunAplica("aplica_iibb"),
+    iibb_pct: ponderar("iibb_pct"),
+    aplica_tasa_estadistica: algunAplica("aplica_tasa_estadistica"),
+    tasa_estadistica_pct: ponderar("tasa_estadistica_pct"),
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  };
+}
+
 export interface DatosSimulacion {
   fobTotalUsd: number;
   cbmTotal?: number;

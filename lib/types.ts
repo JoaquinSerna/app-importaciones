@@ -177,6 +177,7 @@ export interface Sku {
   precio_unitario_fob_usd: number;
   peso_kg: number | null;
   cbm: number | null;
+  ncm_id: string | null;
   created_at: string;
 }
 
