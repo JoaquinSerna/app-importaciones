@@ -16,12 +16,17 @@ import {
 } from "@/components/ui/select";
 import { useToast } from "@/components/ui/use-toast";
 import { calcularCascada, calcularFactorContenedor, type ResultadoCascada } from "@/lib/calculadora-costos";
-import type { NcmArancel, ParametrosGlobales, TipoContenedor } from "@/lib/types";
+import type { NcmArancel, ParametrosGlobales, TipoContenedor, TipoImportacion } from "@/lib/types";
 
 const MODALIDADES: { value: TipoContenedor; label: string }[] = [
   { value: "40HQ", label: "40HQ" },
   { value: "20HQ", label: "20HQ" },
   { value: "AEREO", label: "Aéreo" },
+];
+
+const TIPOS_IMPORTACION: { value: TipoImportacion; label: string; descripcion: string }[] = [
+  { value: "bien_de_cambio", label: "Bien de cambio", descripcion: "Paga todo lo que tenga configurado el NCM" },
+  { value: "bien_de_uso", label: "Bien de uso", descripcion: "Solo paga derechos de importación + IVA" },
 ];
 
 function usd(n: number) {
@@ -57,6 +62,7 @@ export function SimuladorForm({
   const [modalidad, setModalidad] = useState<TipoContenedor>("40HQ");
   const [fleteManual, setFleteManual] = useState("");
   const [contenedorLleno, setContenedorLleno] = useState(true);
+  const [tipoImportacion, setTipoImportacion] = useState<TipoImportacion>("bien_de_cambio");
 
   const [resultado, setResultado] = useState<ResultadoCascada | null>(null);
   const [ncmSimulado, setNcmSimulado] = useState<NcmArancel | null>(null);
@@ -91,6 +97,7 @@ export function SimuladorForm({
       ncm: ncmSeleccionado.codigo_ncm,
       fleteInternacionalUsd: fleteManual ? parseFloat(fleteManual) : undefined,
       ncmArancel: ncmSeleccionado,
+      tipoImportacion,
     });
     setResultado(r);
     setNcmSimulado(ncmSeleccionado);
@@ -111,6 +118,7 @@ export function SimuladorForm({
           ncmArancel: ncmSeleccionado,
           modalidad,
           fleteInternacionalUsd: fleteManual ? parseFloat(fleteManual) : undefined,
+          tipoImportacion,
         });
       } catch (err) {
         toast({ title: "Error creando la carpeta", description: err instanceof Error ? err.message : "Error desconocido" });
@@ -226,15 +234,41 @@ export function SimuladorForm({
             {ncms.length === 0 && <p className="text-xs text-destructive">No hay NCMs cargados.</p>}
           </div>
 
+          <div className="space-y-2">
+            <Label>Tipo de importación *</Label>
+            <Select value={tipoImportacion} onValueChange={(v) => { setTipoImportacion(v as TipoImportacion); setDirty(true); }}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {TIPOS_IMPORTACION.map((t) => (
+                  <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">
+              {TIPOS_IMPORTACION.find((t) => t.value === tipoImportacion)?.descripcion}
+            </p>
+          </div>
+
           {ncmSeleccionado && (
             <div className="rounded-md border bg-muted/40 p-3 text-sm grid grid-cols-2 gap-x-4 gap-y-1">
               <p className="col-span-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1">Aranceles del NCM</p>
               <span className="text-muted-foreground">Derecho:</span><span>{pct(ncmSeleccionado.derecho_importacion_pct)}</span>
               <span className="text-muted-foreground">IVA:</span><span>{pct(ncmSeleccionado.iva_pct)}</span>
-              {ncmSeleccionado.aplica_iva_adicional && <><span className="text-muted-foreground">IVA adicional:</span><span>{pct(ncmSeleccionado.iva_adicional_pct)}</span></>}
-              {ncmSeleccionado.aplica_anticipo_ganancias && <><span className="text-muted-foreground">Ganancias:</span><span>{pct(ncmSeleccionado.anticipo_ganancias_pct)}</span></>}
-              {ncmSeleccionado.aplica_iibb && <><span className="text-muted-foreground">IIBB:</span><span>{pct(ncmSeleccionado.iibb_pct)}</span></>}
-              {ncmSeleccionado.aplica_tasa_estadistica && <><span className="text-muted-foreground">Tasa estadística:</span><span>{pct(ncmSeleccionado.tasa_estadistica_pct)}</span></>}
+              {ncmSeleccionado.aplica_iva_adicional && (
+                <><span className={tipoImportacion === "bien_de_uso" ? "text-muted-foreground/40 line-through" : "text-muted-foreground"}>IVA adicional:</span><span className={tipoImportacion === "bien_de_uso" ? "text-muted-foreground/40 line-through" : ""}>{pct(ncmSeleccionado.iva_adicional_pct)}</span></>
+              )}
+              {ncmSeleccionado.aplica_anticipo_ganancias && (
+                <><span className={tipoImportacion === "bien_de_uso" ? "text-muted-foreground/40 line-through" : "text-muted-foreground"}>Ganancias:</span><span className={tipoImportacion === "bien_de_uso" ? "text-muted-foreground/40 line-through" : ""}>{pct(ncmSeleccionado.anticipo_ganancias_pct)}</span></>
+              )}
+              {ncmSeleccionado.aplica_iibb && (
+                <><span className={tipoImportacion === "bien_de_uso" ? "text-muted-foreground/40 line-through" : "text-muted-foreground"}>IIBB:</span><span className={tipoImportacion === "bien_de_uso" ? "text-muted-foreground/40 line-through" : ""}>{pct(ncmSeleccionado.iibb_pct)}</span></>
+              )}
+              {ncmSeleccionado.aplica_tasa_estadistica && (
+                <><span className={tipoImportacion === "bien_de_uso" ? "text-muted-foreground/40 line-through" : "text-muted-foreground"}>Tasa estadística:</span><span className={tipoImportacion === "bien_de_uso" ? "text-muted-foreground/40 line-through" : ""}>{pct(ncmSeleccionado.tasa_estadistica_pct)}</span></>
+              )}
+              {tipoImportacion === "bien_de_uso" && (
+                <p className="col-span-2 text-xs text-amber-600 mt-1">Bien de uso: los tachados no se cobran.</p>
+              )}
             </div>
           )}
 

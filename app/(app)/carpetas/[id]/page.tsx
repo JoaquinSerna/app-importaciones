@@ -8,6 +8,7 @@ import { Documentos } from "@/components/carpetas/Documentos";
 import { SeccionComparacion } from "@/components/carpetas/SeccionComparacion";
 import { SkusEditor } from "@/components/carpetas/SkusEditor";
 import { Timeline } from "@/components/carpetas/Timeline";
+import { TipoImportacionSelector } from "@/components/carpetas/TipoImportacionSelector";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -148,9 +149,15 @@ export default async function CarpetaDetallePage({ params }: { params: { id: str
             <CardHeader>
               <CardTitle className="text-base">Despacho</CardTitle>
             </CardHeader>
-            <CardContent className="text-sm">
-              <span className="text-muted-foreground mr-2">BL:</span>
-              <BlEditor carpetaId={carpetaTyped.id} blActual={carpetaTyped.bl_number} />
+            <CardContent className="text-sm space-y-3">
+              <div>
+                <span className="text-muted-foreground mr-2">BL:</span>
+                <BlEditor carpetaId={carpetaTyped.id} blActual={carpetaTyped.bl_number} />
+              </div>
+              <div>
+                <span className="text-muted-foreground block mb-1">Tipo de importación:</span>
+                <TipoImportacionSelector carpetaId={carpetaTyped.id} tipoActual={carpetaTyped.tipo_importacion ?? "bien_de_cambio"} />
+              </div>
             </CardContent>
           </Card>
 

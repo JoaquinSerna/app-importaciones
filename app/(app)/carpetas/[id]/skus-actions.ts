@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 
 import { calcularArancelPonderado, calcularCascada, costosComoLineas } from "@/lib/calculadora-costos";
 import { createClient } from "@/lib/supabase/server";
-import type { NcmArancel, ParametrosGlobales } from "@/lib/types";
+import type { NcmArancel, ParametrosGlobales, TipoImportacion } from "@/lib/types";
 
 export interface SkuInput {
   codigoSku?: string;
@@ -102,6 +102,7 @@ export async function recalcularCostosDesdeSkus(carpetaId: string): Promise<{ er
     cbmTotal: cbmSkus > 0 ? cbmSkus : carpeta.cbm_total ?? undefined,
     pesoTotalKg: pesoSkus > 0 ? pesoSkus : carpeta.peso_total_kg ?? undefined,
     ncmArancel: arancelPonderado,
+    tipoImportacion: carpeta.tipo_importacion ?? "bien_de_cambio",
   });
   const lineas = costosComoLineas(resultado);
 
@@ -126,6 +127,79 @@ export async function recalcularCostosDesdeSkus(carpetaId: string): Promise<{ er
   }
 
   await supabase.from("carpetas").update({ ncm: arancelPonderado.codigo_ncm }).eq("id", carpetaId);
+
+  revalidatePath(`/carpetas/${carpetaId}`);
+  return {};
+}
+
+// Cambia bien de cambio / bien de uso y recalcula los costos del simulador
+// con el NCM que corresponda (ponderado por SKUs si hay, o el de la carpeta si no).
+export async function actualizarTipoImportacion(
+  carpetaId: string,
+  tipoImportacion: TipoImportacion
+): Promise<{ error?: string }> {
+  const supabase = createClient();
+
+  const { error: errorUpdate } = await supabase
+    .from("carpetas")
+    .update({ tipo_importacion: tipoImportacion })
+    .eq("id", carpetaId);
+  if (errorUpdate) {
+    console.error("actualizarTipoImportacion", errorUpdate);
+    return { error: errorUpdate.message };
+  }
+
+  const { data: skus } = await supabase
+    .from("skus")
+    .select("*, ncm_aranceles(*)")
+    .eq("carpeta_id", carpetaId);
+
+  if (skus && skus.length > 0 && skus.some((s) => s.ncm_id)) {
+    return recalcularCostosDesdeSkus(carpetaId);
+  }
+
+  const { data: carpeta } = await supabase.from("carpetas").select("*").eq("id", carpetaId).single();
+  if (!carpeta) return { error: "Carpeta no encontrada." };
+  if (!carpeta.ncm_id) {
+    revalidatePath(`/carpetas/${carpetaId}`);
+    return {};
+  }
+
+  const [{ data: ncmArancel }, { data: parametros }] = await Promise.all([
+    supabase.from("ncm_aranceles").select("*").eq("id", carpeta.ncm_id).single(),
+    supabase.from("parametros_globales").select("*").eq("id", carpeta.parametros_snapshot_id).single(),
+  ]);
+  if (!ncmArancel || !parametros) {
+    return { error: "No se pudo recalcular: falta el NCM o los parámetros de la carpeta." };
+  }
+
+  const resultado = calcularCascada(parametros as ParametrosGlobales, {
+    fobTotalUsd: carpeta.fob_total_usd,
+    cbmTotal: carpeta.cbm_total ?? undefined,
+    pesoTotalKg: carpeta.peso_total_kg ?? undefined,
+    ncmArancel: ncmArancel as NcmArancel,
+    tipoImportacion,
+  });
+  const lineas = costosComoLineas(resultado);
+
+  await supabase.from("costos").delete().eq("carpeta_id", carpetaId).eq("origen", "simulador");
+  if (lineas.length > 0) {
+    const { error } = await supabase.from("costos").insert(
+      lineas.map((linea) => ({
+        carpeta_id: carpetaId,
+        nivel: "carpeta" as const,
+        concepto: linea.concepto,
+        categoria: linea.categoria,
+        origen: "simulador" as const,
+        monto_estimado_usd: linea.monto_estimado_usd,
+        tc_aplicado: parametros.tc_usd_ars,
+      }))
+    );
+    if (error) {
+      console.error("actualizarTipoImportacion: insert costos", error);
+      return { error: error.message };
+    }
+  }
 
   revalidatePath(`/carpetas/${carpetaId}`);
   return {};

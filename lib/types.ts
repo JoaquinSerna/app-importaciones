@@ -104,6 +104,8 @@ export interface CarpetaContenedor {
   created_at: string;
 }
 
+export type TipoImportacion = "bien_de_cambio" | "bien_de_uso";
+
 export interface Carpeta {
   id: string;
   numero_carpeta: string;
@@ -115,6 +117,7 @@ export interface Carpeta {
   peso_total_kg: number | null;
   ncm: string | null;
   ncm_id: string | null;
+  tipo_importacion: TipoImportacion;
   parametros_snapshot_id: string;
   tc_snapshot: number;
   contenedor_id: string | null;

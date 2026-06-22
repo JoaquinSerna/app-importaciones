@@ -1,4 +1,4 @@
-import type { CategoriaCosto, NcmArancel, ParametrosGlobales, TipoContenedor } from "@/lib/types";
+import type { CategoriaCosto, NcmArancel, ParametrosGlobales, TipoContenedor, TipoImportacion } from "@/lib/types";
 
 // Capacidad por tipo de contenedor: CBM y kg máximos
 const CAPACIDAD_CONTENEDOR: Record<TipoContenedor, { cbm: number; kg: number }> = {
@@ -91,6 +91,12 @@ export interface DatosSimulacion {
   fleteInternacionalUsd?: number;
   /** NCM con sus aranceles específicos. Requerido para calcular impuestos. */
   ncmArancel?: NcmArancel | null;
+  /**
+   * "bien_de_cambio" (default) = paga todo lo que tenga configurado el NCM
+   * (derechos, IVA, IVA adicional, anticipo ganancias, IIBB, tasa estadística).
+   * "bien_de_uso" = solo paga derechos de importación + IVA.
+   */
+  tipoImportacion?: TipoImportacion;
 }
 
 export interface ResultadoCascada {
@@ -181,11 +187,15 @@ export function calcularCascada(
 
   const cif = fob + fleteInternacional + peakSeason + seguro;
 
+  // Bien de uso: solo paga derechos de importación + IVA (no tasa estadística,
+  // IVA adicional, anticipo de ganancias ni IIBB, aunque el NCM los tenga configurados).
+  const esBienDeUso = datos.tipoImportacion === "bien_de_uso";
+
   // Impuestos sobre CIF
   const derechoImportacionPct = ncm?.derecho_importacion_pct ?? 0;
   const derechosImportacion = (derechoImportacionPct / 100) * cif;
 
-  const tasaEstadistica = (ncm?.aplica_tasa_estadistica ?? false)
+  const tasaEstadistica = !esBienDeUso && (ncm?.aplica_tasa_estadistica ?? false)
     ? ((ncm?.tasa_estadistica_pct ?? 0) / 100) * cif
     : 0;
 
@@ -194,15 +204,15 @@ export function calcularCascada(
   const ivaPct = ncm?.iva_pct ?? 21;
   const iva = (ivaPct / 100) * baseImponibleIva;
 
-  const ivaAdicionalPct = ncm?.aplica_iva_adicional ? (ncm.iva_adicional_pct ?? 0) : 0;
+  const ivaAdicionalPct = !esBienDeUso && ncm?.aplica_iva_adicional ? (ncm.iva_adicional_pct ?? 0) : 0;
   const ivaAdicional = (ivaAdicionalPct / 100) * baseImponibleIva;
 
-  const anticipoGananciasPct = ncm?.aplica_anticipo_ganancias
+  const anticipoGananciasPct = !esBienDeUso && ncm?.aplica_anticipo_ganancias
     ? (ncm.anticipo_ganancias_pct ?? 0)
     : 0;
   const anticipoGanancias = (anticipoGananciasPct / 100) * baseImponibleIva;
 
-  const iibbPct = ncm?.aplica_iibb ? (ncm.iibb_pct ?? 0) : 0;
+  const iibbPct = !esBienDeUso && ncm?.aplica_iibb ? (ncm.iibb_pct ?? 0) : 0;
   const iibb = (iibbPct / 100) * baseImponibleIva;
 
   // Gastos locales — los que varían por contenedor se multiplican por factorContenedor
