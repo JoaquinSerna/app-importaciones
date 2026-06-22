@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useToast } from "@/components/ui/use-toast";
 import type { Documento, TipoDocumento } from "@/lib/types";
+import { RevisionMonedasDespacho } from "./RevisionMonedasDespacho";
 
 interface SlotConfig {
   tipo: TipoDocumento;
@@ -60,7 +61,7 @@ const SECCION_OPERACION: SlotConfig[] = [
     tipo: "despacho_aduana",
     label: "Despacho de aduana",
     descripcion: "PDF del despacho de importación — se extraen tributos reales y NCM",
-    extrae: ["numero_despacho", "fecha_oficializacion", "totales"],
+    extrae: ["numero_despacho", "fecha_oficializacion"],
   },
 ];
 
@@ -68,10 +69,6 @@ function fmtVal(key: string, val: unknown): string {
   if (val === null || val === undefined) return "—";
   if (key === "monto_total" || key === "monto") {
     return `${Number(val).toLocaleString("es-AR", { maximumFractionDigits: 2 })}`;
-  }
-  if (key === "totales" && typeof val === "object" && val !== null) {
-    const t = val as Record<string, unknown>;
-    return `FOB USD ${Number(t.fob_usd ?? 0).toLocaleString("es-AR")} | Tributos USD ${Number(t.total_tributos_usd ?? 0).toLocaleString("es-AR")}`;
   }
   return String(val);
 }
@@ -88,7 +85,6 @@ function fmtLabel(key: string): string {
     monto: "Monto",
     numero_despacho: "N° Despacho",
     fecha_oficializacion: "Oficialización",
-    totales: "Totales",
   };
   return MAP[key] ?? key;
 }
@@ -252,7 +248,14 @@ export function DocumentosContenedor({ contenedorId, documentos }: DocumentosCon
   >;
 
   const despacho = byTipo["despacho_aduana"];
-  const totales = despacho?.datos_extraidos?.totales as Record<string, unknown> | undefined;
+  const datosDespacho = despacho?.datos_extraidos as Record<string, unknown> | undefined;
+  const itemsCostosRaw = datosDespacho?.items_costos as { concepto: string; monto: number }[] | undefined;
+  const monedasConfirmadas = datosDespacho?.monedas_confirmadas === true;
+  const itemsCostosConfirmados = datosDespacho?.items_costos_confirmados as
+    | { concepto: string; monto: number; moneda: "USD" | "ARS"; monto_usd: number }[]
+    | undefined;
+  const tipoCambioInicial = (datosDespacho?.tipo_cambio as number | null) ?? null;
+  const totalConfirmado = (itemsCostosConfirmados ?? []).reduce((a, i) => a + i.monto_usd, 0);
 
   return (
     <div className="space-y-6">
@@ -272,38 +275,38 @@ export function DocumentosContenedor({ contenedorId, documentos }: DocumentosCon
         </CardContent>
       </Card>
 
-      {totales && (
+      {despacho?.estado === "extraido" && itemsCostosRaw && itemsCostosRaw.length > 0 && !monedasConfirmadas && (
+        <RevisionMonedasDespacho
+          documentoId={despacho.id}
+          contenedorId={contenedorId}
+          itemsCostos={itemsCostosRaw}
+          tipoCambioInicial={tipoCambioInicial}
+        />
+      )}
+
+      {monedasConfirmadas && itemsCostosConfirmados && itemsCostosConfirmados.length > 0 && (
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Resumen tributos reales (del despacho)</CardTitle>
+            <CardTitle className="text-base">Resumen costos reales (del despacho)</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-3">
-              {(
-                [
-                  ["FOB", totales.fob_usd],
-                  ["Flete", totales.flete_usd],
-                  ["CIF", totales.cif_usd],
-                  ["Derechos de importación", totales.derechos_importacion_usd],
-                  ["Tasa estadística", totales.tasa_estadistica_usd],
-                  ["IVA", totales.iva_usd],
-                  ["IVA adicional", totales.iva_adicional_usd],
-                  ["Ganancias", totales.ganancias_usd],
-                ] as [string, unknown][]
-              ).map(([label, val]) =>
-                val != null && Number(val) > 0 ? (
-                  <div key={label}>
-                    <p className="text-xs text-muted-foreground">{label}</p>
-                    <p className="font-medium">
-                      USD {Number(val).toLocaleString("es-AR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                    </p>
-                  </div>
-                ) : null
-              )}
+              {itemsCostosConfirmados.map((item) => (
+                <div key={item.concepto}>
+                  <p className="text-xs text-muted-foreground">
+                    {item.concepto} <span className="text-muted-foreground/60">({item.moneda})</span>
+                  </p>
+                  <p className="font-medium">
+                    USD {item.monto_usd.toLocaleString("es-AR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </p>
+                </div>
+              ))}
             </div>
             <div className="border-t pt-2 flex justify-between items-center">
-              <span className="text-sm font-medium">Total tributos</span>
-              <span className="text-base font-bold">USD {Number(totales.total_tributos_usd ?? 0).toLocaleString("es-AR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+              <span className="text-sm font-medium">Total</span>
+              <span className="text-base font-bold">
+                USD {totalConfirmado.toLocaleString("es-AR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </span>
             </div>
           </CardContent>
         </Card>

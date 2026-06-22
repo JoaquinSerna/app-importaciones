@@ -181,7 +181,9 @@ Solo devolvé el JSON, sin texto adicional.`,
   despacho_aduana: `
 Analizá este despacho de aduana y extraé la siguiente información en JSON.
 
-IMPORTANTE: todos los valores monetarios en este despacho están en USD. Extraé los números exactamente como aparecen, sin convertir ni interpretar monedas.
+IMPORTANTE sobre montos: NO asumas ni asignes la moneda (USD o ARS) de cada costo — eso lo va a confirmar el usuario manualmente después, ya que los despachos varían y la IA no puede adivinar esto de forma confiable. Solo extraé el número exactamente como aparece en el documento, sin signo de moneda.
+
+En "items_costos" incluí TODOS los conceptos de valor o costo que encuentres en la liquidación (FOB, Flete, Seguro, CIF, Derechos de importación, Tasa estadística, IVA, IVA adicional, Anticipo de ganancias, Arancel, y cualquier otro tributo o concepto monetario que aparezca), cada uno con su monto. Omití los conceptos que no aparezcan en el documento — no inventes valores en cero.
 
 {
   "numero_despacho": "número completo del despacho (ej: 012D-2024-000123)",
@@ -190,37 +192,20 @@ IMPORTANTE: todos los valores monetarios en este despacho están en USD. Extraé
   "fecha_oficializacion": "YYYY-MM-DD",
   "aduana": "nombre de la aduana",
   "regimen": "código y descripción del régimen de importación",
-  "items": [
-    {
-      "item": número de item,
-      "ncm": "código NCM de 8 dígitos",
-      "descripcion": "descripción de la mercadería",
-      "cantidad": número,
-      "unidad": "unidad",
-      "fob_usd": número,
-      "derechos_importacion_usd": número,
-      "tasa_estadistica_usd": número,
-      "iva_usd": número,
-      "iva_adicional_usd": número,
-      "ganancias_usd": número,
-      "total_tributos_usd": número
-    }
-  ],
-  "totales": {
-    "fob_usd": número,
-    "flete_usd": número,
-    "seguro_usd": número o null,
-    "cif_usd": número,
-    "derechos_importacion_usd": número,
-    "tasa_estadistica_usd": número,
-    "iva_usd": número,
-    "iva_adicional_usd": número,
-    "ganancias_usd": número,
-    "total_tributos_usd": número
-  },
-  "banco_interviniente": "banco si aparece o null"
+  "tipo_cambio": número (tipo de cambio / cotización que figura en el despacho, ej: "Cotiz = 1.382,00", o null si no aparece),
+  "items_costos": [
+    { "concepto": "FOB", "monto": número },
+    { "concepto": "Flete internacional", "monto": número },
+    { "concepto": "Seguro", "monto": número },
+    { "concepto": "CIF", "monto": número },
+    { "concepto": "Derechos de importación", "monto": número },
+    { "concepto": "Tasa estadística", "monto": número },
+    { "concepto": "IVA", "monto": número },
+    { "concepto": "IVA adicional", "monto": número },
+    { "concepto": "Anticipo de ganancias", "monto": número }
+  ]
 }
-Si hay múltiples páginas o ítems, incluí todos. Solo devolvé el JSON, sin texto adicional.`,
+Si hay múltiples páginas o ítems, sumá los montos totales del despacho. Solo devolvé el JSON, sin texto adicional.`,
 };
 
 export async function extraerDatosDocumento(

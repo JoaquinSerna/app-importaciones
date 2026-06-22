@@ -145,23 +145,22 @@ export async function analizarCostosReales(carpetaId: string): Promise<Resultado
     advertencias.push("No se encontró Factura del despachante extraída en el contenedor.");
   }
 
-  // Despacho de aduana → impuestos reales en USD (prorateados por CBM)
+  // Despacho de aduana → impuestos reales en USD (prorateados por CBM), ya confirmados por el usuario
   const despacho = docsContenedor.find(d => d.tipo === "despacho_aduana");
-  if (despacho?.datos_extraidos) {
-    const t = despacho.datos_extraidos.totales as Record<string, number> | undefined;
-    if (t) {
-      const impuestos = [
-        ["derechos_importacion_usd", "Derechos de importación"],
-        ["tasa_estadistica_usd", "Tasa estadística"],
-        ["iva_usd", "IVA"],
-        ["iva_adicional_usd", "IVA adicional"],
-        ["ganancias_usd", "Anticipo de ganancias"],
-      ] as const;
-      for (const [key, label] of impuestos) {
-        const monto = Number(t[key] ?? 0) * cbmProporcion;
-        if (monto > 0) costosReales.push({ concepto: label, monto_usd: monto, fuente: "Despacho de aduana" });
+  if (despacho?.datos_extraidos?.monedas_confirmadas) {
+    const itemsConfirmados = despacho.datos_extraidos.items_costos_confirmados as
+      | { concepto: string; monto_usd: number }[]
+      | undefined;
+    if (itemsConfirmados) {
+      const esValorMercaderia = (c: string) => /fob|flete|seguro|cif/i.test(c);
+      for (const item of itemsConfirmados) {
+        if (esValorMercaderia(item.concepto)) continue;
+        const monto = item.monto_usd * cbmProporcion;
+        if (monto > 0) costosReales.push({ concepto: item.concepto, monto_usd: monto, fuente: "Despacho de aduana" });
       }
     }
+  } else if (carpeta.contenedor_id && despacho) {
+    advertencias.push("El despacho de aduana está cargado pero falta confirmar la moneda de cada costo (en la pestaña Documentos del contenedor).");
   } else if (carpeta.contenedor_id) {
     advertencias.push("No se encontró Despacho de aduana extraído en el contenedor.");
   }
