@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { Plus, X } from "lucide-react";
 
 import { crearCarpetaDesdeSimulacion } from "@/app/(app)/carpetas/nueva/actions";
 import { Button } from "@/components/ui/button";
@@ -15,8 +16,13 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useToast } from "@/components/ui/use-toast";
-import { calcularCascada, calcularFactorContenedor, type ResultadoCascada } from "@/lib/calculadora-costos";
+import { calcularArancelPonderado, calcularCascada, calcularFactorContenedor, type ResultadoCascada } from "@/lib/calculadora-costos";
 import type { NcmArancel, ParametrosGlobales, TipoContenedor, TipoImportacion } from "@/lib/types";
+
+interface LineaNcm {
+  ncmId: string;
+  fobUsd: string;
+}
 
 const MODALIDADES: { value: TipoContenedor; label: string }[] = [
   { value: "40HQ", label: "40HQ" },
@@ -55,10 +61,9 @@ export function SimuladorForm({
   const [isPending, startTransition] = useTransition();
 
   const [proveedorId, setProveedorId] = useState("");
-  const [fobInput, setFobInput] = useState("");
   const [cbmInput, setCbmInput] = useState("");
   const [pesoInput, setPesoInput] = useState("");
-  const [ncmId, setNcmId] = useState("");
+  const [lineasNcm, setLineasNcm] = useState<LineaNcm[]>([{ ncmId: "", fobUsd: "" }]);
   const [modalidad, setModalidad] = useState<TipoContenedor>("40HQ");
   const [fleteManual, setFleteManual] = useState("");
   const [contenedorLleno, setContenedorLleno] = useState(true);
@@ -68,7 +73,19 @@ export function SimuladorForm({
   const [ncmSimulado, setNcmSimulado] = useState<NcmArancel | null>(null);
   const [dirty, setDirty] = useState(false);
 
-  const ncmSeleccionado = ncms.find((n) => n.id === ncmId) ?? null;
+  const fobTotal = lineasNcm.reduce((acc, l) => acc + (parseFloat(l.fobUsd) || 0), 0);
+
+  function actualizarLinea(idx: number, cambios: Partial<LineaNcm>) {
+    setLineasNcm((prev) => prev.map((l, i) => (i === idx ? { ...l, ...cambios } : l)));
+    setDirty(true);
+  }
+  function agregarLinea() {
+    setLineasNcm((prev) => [...prev, { ncmId: "", fobUsd: "" }]);
+  }
+  function quitarLinea(idx: number) {
+    setLineasNcm((prev) => prev.filter((_, i) => i !== idx));
+    setDirty(true);
+  }
 
   // Sugerencia de contenedores en tiempo real (sin necesidad de simular)
   const cbm = cbmInput ? parseFloat(cbmInput) : undefined;
@@ -79,46 +96,56 @@ export function SimuladorForm({
 
   function handleSimular() {
     if (!parametros) return;
-    const fob = parseFloat(fobInput);
-    if (Number.isNaN(fob) || fob <= 0) {
-      toast({ title: "FOB inválido", description: "Ingresá un valor mayor a 0." });
+    if (fobTotal <= 0) {
+      toast({ title: "FOB inválido", description: "Ingresá al menos una línea con NCM y FOB mayor a 0." });
       return;
     }
-    if (!ncmSeleccionado) {
-      toast({ title: "NCM requerido", description: "Seleccioná una posición arancelaria." });
+    if (lineasNcm.some((l) => !l.ncmId || !(parseFloat(l.fobUsd) > 0))) {
+      toast({ title: "Completá todas las líneas", description: "Cada línea necesita un NCM y un FOB mayor a 0." });
+      return;
+    }
+    const arancelPonderado = calcularArancelPonderado(
+      lineasNcm.map((l) => ({
+        fobUsd: parseFloat(l.fobUsd) || 0,
+        ncm: ncms.find((n) => n.id === l.ncmId) ?? null,
+      }))
+    );
+    if (!arancelPonderado) {
+      toast({ title: "NCM requerido", description: "Seleccioná al menos un NCM." });
       return;
     }
     const r = calcularCascada(parametros, {
-      fobTotalUsd: fob,
+      fobTotalUsd: fobTotal,
       cbmTotal: cbm,
       pesoTotalKg: peso,
       tipoContenedor: modalidad,
       contenedorLleno,
-      ncm: ncmSeleccionado.codigo_ncm,
+      ncm: arancelPonderado.codigo_ncm,
       fleteInternacionalUsd: fleteManual ? parseFloat(fleteManual) : undefined,
-      ncmArancel: ncmSeleccionado,
+      ncmArancel: arancelPonderado,
       tipoImportacion,
     });
     setResultado(r);
-    setNcmSimulado(ncmSeleccionado);
+    setNcmSimulado(arancelPonderado);
     setDirty(false);
   }
 
   function handleCrearCarpeta() {
-    if (!parametros || !resultado || !ncmSeleccionado) return;
+    if (!parametros || !resultado || !ncmSimulado) return;
     startTransition(async () => {
       try {
         await crearCarpetaDesdeSimulacion({
           proveedorId: proveedorId || undefined,
-          fobTotalUsd: parseFloat(fobInput),
+          fobTotalUsd: fobTotal,
           cbmTotal: cbm,
           pesoTotalKg: peso,
-          ncm: ncmSeleccionado.codigo_ncm,
-          ncmId: ncmSeleccionado.id,
-          ncmArancel: ncmSeleccionado,
+          ncm: ncmSimulado.codigo_ncm,
+          ncmId: lineasNcm.length === 1 ? lineasNcm[0].ncmId : undefined,
+          ncmArancel: ncmSimulado,
           modalidad,
           fleteInternacionalUsd: fleteManual ? parseFloat(fleteManual) : undefined,
           tipoImportacion,
+          lineasNcm: lineasNcm.map((l) => ({ ncmId: l.ncmId, fobUsd: parseFloat(l.fobUsd) || 0 })),
         });
       } catch (err) {
         toast({ title: "Error creando la carpeta", description: err instanceof Error ? err.message : "Error desconocido" });
@@ -147,21 +174,14 @@ export function SimuladorForm({
             </Select>
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label>FOB total (USD) *</Label>
-              <Input type="number" min="0" step="0.01" value={fobInput}
-                onChange={(e) => { setFobInput(e.target.value); setDirty(true); }} placeholder="10000" />
-            </div>
-            <div className="space-y-2">
-              <Label>Modalidad *</Label>
-              <Select value={modalidad} onValueChange={(v) => { setModalidad(v as TipoContenedor); setDirty(true); }}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {MODALIDADES.map((m) => <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </div>
+          <div className="space-y-2">
+            <Label>Modalidad *</Label>
+            <Select value={modalidad} onValueChange={(v) => { setModalidad(v as TipoContenedor); setDirty(true); }}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {MODALIDADES.map((m) => <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>)}
+              </SelectContent>
+            </Select>
           </div>
 
           <div className="grid grid-cols-2 gap-4">
@@ -220,18 +240,46 @@ export function SimuladorForm({
           )}
 
           <div className="space-y-2">
-            <Label>Posición arancelaria (NCM) *</Label>
-            <Select value={ncmId} onValueChange={(v) => { setNcmId(v); setDirty(true); }}>
-              <SelectTrigger><SelectValue placeholder="Seleccioná un NCM" /></SelectTrigger>
-              <SelectContent>
-                {ncms.map((n) => (
-                  <SelectItem key={n.id} value={n.id}>
-                    {n.codigo_ncm}{n.descripcion ? ` — ${n.descripcion}` : ""}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <Label>Productos / NCM *</Label>
+            <p className="text-xs text-muted-foreground -mt-1">
+              Una línea por cada NCM distinto de la compra, con su porción de FOB. El FOB total se calcula solo.
+            </p>
+            <div className="space-y-2">
+              {lineasNcm.map((linea, idx) => (
+                <div key={idx} className="flex items-center gap-2">
+                  <Select value={linea.ncmId} onValueChange={(v) => actualizarLinea(idx, { ncmId: v })}>
+                    <SelectTrigger className="flex-1"><SelectValue placeholder="NCM" /></SelectTrigger>
+                    <SelectContent>
+                      {ncms.map((n) => (
+                        <SelectItem key={n.id} value={n.id}>
+                          {n.codigo_ncm}{n.descripcion ? ` — ${n.descripcion}` : ""}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Input
+                    type="number" min="0" step="0.01" placeholder="FOB USD" className="w-32"
+                    value={linea.fobUsd}
+                    onChange={(e) => actualizarLinea(idx, { fobUsd: e.target.value })}
+                  />
+                  <Button
+                    type="button" size="sm" variant="ghost"
+                    onClick={() => quitarLinea(idx)}
+                    disabled={lineasNcm.length === 1}
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
+              ))}
+            </div>
+            <Button type="button" size="sm" variant="outline" onClick={agregarLinea}>
+              <Plus className="h-3.5 w-3.5 mr-1" />
+              Agregar NCM
+            </Button>
             {ncms.length === 0 && <p className="text-xs text-destructive">No hay NCMs cargados.</p>}
+            {fobTotal > 0 && (
+              <p className="text-sm font-medium pt-1">FOB total: {usd(fobTotal)}</p>
+            )}
           </div>
 
           <div className="space-y-2">
@@ -249,23 +297,17 @@ export function SimuladorForm({
             </p>
           </div>
 
-          {ncmSeleccionado && (
+          {resultado && ncmSimulado && !dirty && (
             <div className="rounded-md border bg-muted/40 p-3 text-sm grid grid-cols-2 gap-x-4 gap-y-1">
-              <p className="col-span-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1">Aranceles del NCM</p>
-              <span className="text-muted-foreground">Derecho:</span><span>{pct(ncmSeleccionado.derecho_importacion_pct)}</span>
-              <span className="text-muted-foreground">IVA:</span><span>{pct(ncmSeleccionado.iva_pct)}</span>
-              {ncmSeleccionado.aplica_iva_adicional && (
-                <><span className={tipoImportacion === "bien_de_uso" ? "text-muted-foreground/40 line-through" : "text-muted-foreground"}>IVA adicional:</span><span className={tipoImportacion === "bien_de_uso" ? "text-muted-foreground/40 line-through" : ""}>{pct(ncmSeleccionado.iva_adicional_pct)}</span></>
-              )}
-              {ncmSeleccionado.aplica_anticipo_ganancias && (
-                <><span className={tipoImportacion === "bien_de_uso" ? "text-muted-foreground/40 line-through" : "text-muted-foreground"}>Ganancias:</span><span className={tipoImportacion === "bien_de_uso" ? "text-muted-foreground/40 line-through" : ""}>{pct(ncmSeleccionado.anticipo_ganancias_pct)}</span></>
-              )}
-              {ncmSeleccionado.aplica_iibb && (
-                <><span className={tipoImportacion === "bien_de_uso" ? "text-muted-foreground/40 line-through" : "text-muted-foreground"}>IIBB:</span><span className={tipoImportacion === "bien_de_uso" ? "text-muted-foreground/40 line-through" : ""}>{pct(ncmSeleccionado.iibb_pct)}</span></>
-              )}
-              {ncmSeleccionado.aplica_tasa_estadistica && (
-                <><span className={tipoImportacion === "bien_de_uso" ? "text-muted-foreground/40 line-through" : "text-muted-foreground"}>Tasa estadística:</span><span className={tipoImportacion === "bien_de_uso" ? "text-muted-foreground/40 line-through" : ""}>{pct(ncmSeleccionado.tasa_estadistica_pct)}</span></>
-              )}
+              <p className="col-span-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1">
+                Aranceles {lineasNcm.length > 1 ? "(promedio ponderado por FOB)" : "del NCM"}
+              </p>
+              <span className="text-muted-foreground">Derecho:</span><span>{pct(ncmSimulado.derecho_importacion_pct)}</span>
+              <span className="text-muted-foreground">IVA:</span><span>{pct(ncmSimulado.iva_pct)}</span>
+              <span className={tipoImportacion === "bien_de_uso" ? "text-muted-foreground/40 line-through" : "text-muted-foreground"}>IVA adicional:</span><span className={tipoImportacion === "bien_de_uso" ? "text-muted-foreground/40 line-through" : ""}>{pct(ncmSimulado.iva_adicional_pct)}</span>
+              <span className={tipoImportacion === "bien_de_uso" ? "text-muted-foreground/40 line-through" : "text-muted-foreground"}>Ganancias:</span><span className={tipoImportacion === "bien_de_uso" ? "text-muted-foreground/40 line-through" : ""}>{pct(ncmSimulado.anticipo_ganancias_pct)}</span>
+              <span className={tipoImportacion === "bien_de_uso" ? "text-muted-foreground/40 line-through" : "text-muted-foreground"}>IIBB:</span><span className={tipoImportacion === "bien_de_uso" ? "text-muted-foreground/40 line-through" : ""}>{pct(ncmSimulado.iibb_pct)}</span>
+              <span className={tipoImportacion === "bien_de_uso" ? "text-muted-foreground/40 line-through" : "text-muted-foreground"}>Tasa estadística:</span><span className={tipoImportacion === "bien_de_uso" ? "text-muted-foreground/40 line-through" : ""}>{pct(ncmSimulado.tasa_estadistica_pct)}</span>
               {tipoImportacion === "bien_de_uso" && (
                 <p className="col-span-2 text-xs text-amber-600 mt-1">Bien de uso: los tachados no se cobran.</p>
               )}

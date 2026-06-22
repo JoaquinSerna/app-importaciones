@@ -17,6 +17,8 @@ export interface CrearCarpetaInput {
   modalidad: TipoContenedor;
   fleteInternacionalUsd?: number;
   tipoImportacion?: TipoImportacion;
+  /** Una línea por cada NCM distinto de la compra, con su porción de FOB. Se cargan como SKUs. */
+  lineasNcm?: { ncmId: string; fobUsd: number }[];
 }
 
 /** Genera el próximo número de carpeta con formato IMP-{año}-{secuencial 3 dígitos}. */
@@ -126,6 +128,29 @@ export async function crearCarpetaDesdeSimulacion(input: CrearCarpetaInput) {
 
     if (errorCostos) {
       throw new Error(`Error insertando costos del simulador: ${errorCostos.message}`);
+    }
+  }
+
+  // 6. Si se cargaron varias líneas de NCM, las guardamos como SKUs para que
+  // la pestaña SKUs ya quede coherente (y se pueda recalcular más adelante).
+  if (input.lineasNcm && input.lineasNcm.length > 0) {
+    const { data: ncmsData } = await supabase
+      .from("ncm_aranceles")
+      .select("id, codigo_ncm")
+      .in("id", input.lineasNcm.map((l) => l.ncmId));
+    const codigoPorId = new Map((ncmsData ?? []).map((n) => [n.id, n.codigo_ncm]));
+
+    const { error: errorSkus } = await supabase.from("skus").insert(
+      input.lineasNcm.map((l) => ({
+        carpeta_id: carpeta.id,
+        descripcion: codigoPorId.get(l.ncmId) ?? null,
+        cantidad: 1,
+        precio_unitario_fob_usd: l.fobUsd,
+        ncm_id: l.ncmId,
+      }))
+    );
+    if (errorSkus) {
+      throw new Error(`Error guardando los productos (NCM) de la carpeta: ${errorSkus.message}`);
     }
   }
 
