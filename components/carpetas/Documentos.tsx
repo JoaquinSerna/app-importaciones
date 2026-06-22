@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useTransition } from "react";
-import { CheckCircle, FileText, Image, Loader2, Upload, UserCircle, XCircle } from "lucide-react";
+import { CheckCircle, Download, FileText, Image, Loader2, Upload, UserCircle, XCircle } from "lucide-react";
 
 import { eliminarDocumento, subirDocumento } from "@/app/(app)/carpetas/[id]/documentos/actions";
 import { Button } from "@/components/ui/button";
@@ -164,6 +164,11 @@ function DocumentoSlot({
           </Button>
         ) : (
           <div className="flex gap-1">
+            <a href={doc.file_url} target="_blank" rel="noopener noreferrer" download={doc.file_name}>
+              <Button size="sm" variant="ghost" title="Descargar">
+                <Download className="h-3 w-3" />
+              </Button>
+            </a>
             <Button size="sm" variant="ghost" disabled={isPending} onClick={() => inputRef.current?.click()} title="Reemplazar">
               <Upload className="h-3 w-3" />
             </Button>

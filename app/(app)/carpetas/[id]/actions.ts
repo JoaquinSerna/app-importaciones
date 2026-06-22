@@ -48,6 +48,29 @@ const CAPACIDAD_CBM: Record<string, number> = {
   "20HQ": 28,
 };
 
+type CampoFechaCarpeta =
+  | "fecha_pago_anticipo"
+  | "fecha_pago_saldo"
+  | "fecha_embarque"
+  | "eta"
+  | "fecha_arribo_real"
+  | "fecha_liberacion"
+  | "fecha_llegada_oficina";
+
+export async function actualizarFechaCarpeta(
+  carpetaId: string,
+  campo: CampoFechaCarpeta,
+  valor: string | null
+) {
+  const supabase = createClient();
+  const { error } = await supabase
+    .from("carpetas")
+    .update({ [campo]: valor })
+    .eq("id", carpetaId);
+  if (error) throw new Error(error.message);
+  revalidatePath(`/carpetas/${carpetaId}`);
+}
+
 export async function asignarContenedor(carpetaId: string, contenedorId: string | null) {
   const supabase = createClient();
 

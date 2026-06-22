@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useTransition } from "react";
-import { CheckCircle, FileText, Loader2, Upload, XCircle } from "lucide-react";
+import { CheckCircle, Download, FileText, Loader2, Upload, XCircle } from "lucide-react";
 
 import {
   eliminarDocumentoContenedor,
@@ -211,6 +211,11 @@ function DocumentoSlot({
           </Button>
         ) : (
           <div className="flex gap-1">
+            <a href={doc.file_url} target="_blank" rel="noopener noreferrer" download={doc.file_name}>
+              <Button size="sm" variant="ghost" title="Descargar">
+                <Download className="h-3 w-3" />
+              </Button>
+            </a>
             <Button
               size="sm"
               variant="ghost"
@@ -272,30 +277,34 @@ export function DocumentosContenedor({ contenedorId, documentos }: DocumentosCon
           <CardHeader>
             <CardTitle className="text-base">Resumen tributos reales (del despacho)</CardTitle>
           </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-2 gap-2 text-sm sm:grid-cols-3">
+          <CardContent className="space-y-4">
+            <div className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-3">
               {(
                 [
-                  ["FOB USD", totales.fob_usd],
-                  ["Flete USD", totales.flete_usd],
-                  ["CIF USD", totales.cif_usd],
-                  ["Derechos ARS", totales.derechos_importacion_ars],
-                  ["Tasa Est. ARS", totales.tasa_estadistica_ars],
-                  ["IVA ARS", totales.iva_ars],
-                  ["IVA Adic. ARS", totales.iva_adicional_ars],
-                  ["Ganancias ARS", totales.ganancias_ars],
-                  ["Total tributos ARS", totales.total_tributos_ars],
+                  ["FOB", totales.fob_usd],
+                  ["Flete", totales.flete_usd],
+                  ["CIF", totales.cif_usd],
+                  ["Derechos de importación", totales.derechos_importacion_usd],
+                  ["Tasa estadística", totales.tasa_estadistica_usd],
+                  ["IVA", totales.iva_usd],
+                  ["IVA adicional", totales.iva_adicional_usd],
+                  ["Ganancias", totales.ganancias_usd],
                 ] as [string, unknown][]
               ).map(([label, val]) =>
-                val != null ? (
+                val != null && Number(val) > 0 ? (
                   <div key={label}>
                     <p className="text-xs text-muted-foreground">{label}</p>
                     <p className="font-medium">
-                      {Number(val).toLocaleString("es-AR", { maximumFractionDigits: 2 })}
+                      USD {Number(val).toLocaleString("es-AR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </p>
                   </div>
                 ) : null
               )}
+            </div>
+            <div className="border-t pt-2 flex justify-between items-center">
+              <span className="text-sm font-medium">Total tributos</span>
+              <span className="text-base font-bold">USD {Number(totales.total_tributos_usd ?? 0).toLocaleString("es-AR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+            </div>
             </div>
           </CardContent>
         </Card>

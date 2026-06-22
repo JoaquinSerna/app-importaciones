@@ -179,7 +179,10 @@ Analizá este comprobante de pago y extraé la siguiente información en JSON:
 Solo devolvé el JSON, sin texto adicional.`,
 
   despacho_aduana: `
-Analizá este despacho de aduana argentino y extraé la siguiente información en JSON:
+Analizá este despacho de aduana y extraé la siguiente información en JSON.
+
+IMPORTANTE: todos los valores monetarios en este despacho están en USD. Extraé los números exactamente como aparecen, sin convertir ni interpretar monedas.
+
 {
   "numero_despacho": "número completo del despacho (ej: 012D-2024-000123)",
   "importador": "nombre del importador",
@@ -194,29 +197,28 @@ Analizá este despacho de aduana argentino y extraé la siguiente información e
       "descripcion": "descripción de la mercadería",
       "cantidad": número,
       "unidad": "unidad",
-      "fob_usd": número (FOB en USD),
-      "derechos_importacion": número (en ARS),
-      "tasa_estadistica": número (en ARS),
-      "iva": número (en ARS),
-      "iva_adicional": número (en ARS),
-      "ganancias": número (en ARS),
-      "total_tributos": número (en ARS)
+      "fob_usd": número,
+      "derechos_importacion_usd": número,
+      "tasa_estadistica_usd": número,
+      "iva_usd": número,
+      "iva_adicional_usd": número,
+      "ganancias_usd": número,
+      "total_tributos_usd": número
     }
   ],
   "totales": {
-    "fob_usd": número total FOB en USD,
-    "flete_usd": número flete en USD si aparece,
-    "seguro_usd": número seguro en USD si aparece,
-    "cif_usd": número CIF en USD si aparece,
-    "derechos_importacion_ars": número total,
-    "tasa_estadistica_ars": número total,
-    "iva_ars": número total IVA,
-    "iva_adicional_ars": número total IVA adicional,
-    "ganancias_ars": número total ganancias,
-    "total_tributos_ars": número total de todos los tributos
+    "fob_usd": número,
+    "flete_usd": número,
+    "seguro_usd": número o null,
+    "cif_usd": número,
+    "derechos_importacion_usd": número,
+    "tasa_estadistica_usd": número,
+    "iva_usd": número,
+    "iva_adicional_usd": número,
+    "ganancias_usd": número,
+    "total_tributos_usd": número
   },
-  "tipo_cambio": número (TC oficial usado),
-  "banco_interviniente": "banco si aparece"
+  "banco_interviniente": "banco si aparece o null"
 }
 Si hay múltiples páginas o ítems, incluí todos. Solo devolvé el JSON, sin texto adicional.`,
 };

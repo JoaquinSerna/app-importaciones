@@ -145,21 +145,20 @@ export async function analizarCostosReales(carpetaId: string): Promise<Resultado
     advertencias.push("No se encontró Factura del despachante extraída en el contenedor.");
   }
 
-  // Despacho de aduana → impuestos reales (prorateados por CBM)
+  // Despacho de aduana → impuestos reales en USD (prorateados por CBM)
   const despacho = docsContenedor.find(d => d.tipo === "despacho_aduana");
   if (despacho?.datos_extraidos) {
     const t = despacho.datos_extraidos.totales as Record<string, number> | undefined;
-    const tc = Number(despacho.datos_extraidos.tipo_cambio ?? 1);
-    if (t && tc > 0) {
+    if (t) {
       const impuestos = [
-        ["derechos_importacion_ars", "Derechos de importación"],
-        ["tasa_estadistica_ars", "Tasa estadística"],
-        ["iva_ars", "IVA"],
-        ["iva_adicional_ars", "IVA adicional"],
-        ["ganancias_ars", "Anticipo de ganancias"],
+        ["derechos_importacion_usd", "Derechos de importación"],
+        ["tasa_estadistica_usd", "Tasa estadística"],
+        ["iva_usd", "IVA"],
+        ["iva_adicional_usd", "IVA adicional"],
+        ["ganancias_usd", "Anticipo de ganancias"],
       ] as const;
       for (const [key, label] of impuestos) {
-        const monto = Number(t[key] ?? 0) / tc * cbmProporcion;
+        const monto = Number(t[key] ?? 0) * cbmProporcion;
         if (monto > 0) costosReales.push({ concepto: label, monto_usd: monto, fuente: "Despacho de aduana" });
       }
     }
