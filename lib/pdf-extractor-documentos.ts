@@ -185,7 +185,18 @@ IMPORTANTE sobre montos: NO asumas ni asignes la moneda (USD o ARS) de cada cost
 
 "valores_generales" son montos que aparecen UNA SOLA VEZ en el despacho (no por ítem) — normalmente en un resumen o en los datos generales: FOB total, Flete internacional total, Seguro total, CIF/Valor en aduana total, y tributos especiales (anti-dumping, salvaguardias, aranceles especiales) si el despacho los expresa como un total único. Extraé el número tal cual figura, no inventes ni calcules nada.
 
-"items" es la lista de TODOS los ítems/posiciones NCM del despacho (puede haber muchos, en varias páginas). Cada ítem tiene una tabla de "Liquidación" o "Conceptos" con varias filas (Porc. / P-G-C / Importe / Concepto) — para cada ítem extraé TODAS esas filas tal como aparecen, usando el monto de la columna "DEL ITEM" (Importe), SIN omitir ninguna aunque no reconozcas el concepto. Copiá el nombre del concepto EXACTAMENTE como figura impreso (ej: "DERECHOS IMPORTACION", "I.V.A.", "TASA ESTAD MONT MAX", "DER. ANTIDUMPING", "ARANCEL SIM IMPO"), código incluido si lo tiene (ej: "(010) DERECHOS IMPORTACION"). NO tenés que sumar nada vos ni reconocer qué es cada concepto: el código de la aplicación se encarga de sumarlos y agruparlos después. Es más importante que cada fila y cada número individual sea correcto que tratar de interpretar o calcular un total.
+"items" es la lista de TODOS los ítems/posiciones NCM del despacho (puede haber muchos, en varias páginas). Cada ítem tiene una tabla de "Liquidación" o "Conceptos" con varias filas (Porc. / P-G-C / Importe / Concepto) — para cada fila de esa tabla extraé el monto de la columna "DEL ITEM" (Importe) y clasificá A QUÉ CONCEPTO REAL corresponde, usando tu conocimiento de despachos de aduana argentinos y los códigos AFIP habituales:
+- (010) DERECHOS IMPORTACION → "Derechos de importación"
+- (011)/(061) TASA ESTADISTICA, TASA ESTAD, TASA ESTAD MONT MAX (variante con tope máximo en vez de %) → SIEMPRE "Tasa estadística" (es el mismo tributo, no uno aparte)
+- (415) I.V.A., IVA → "IVA"
+- IVA ADIC, IVA ADICIONAL → "IVA adicional"
+- GANANCIAS, ANTICIPO GANANCIAS → "Anticipo de ganancias"
+- DER. ANTIDUMPING, DERECHO ANTI DUMPING, ANTIDUMPING → "Derechos anti-dumping"
+- SALVAGUARDIA → "Salvaguardia"
+- (500) ARANCEL SIM IMPO, ARANCEL SIM → "Arancel SIM Impo"
+- IIBB, INGRESOS BRUTOS → "IIBB"
+- Cualquier otro concepto que no reconozcas → copiá el texto tal como figura impreso, sin inventar a qué corresponde.
+NO omitas ninguna fila aunque no la reconozcas. NO tenés que sumar nada entre ítems: el código de la aplicación se encarga de sumar los montos ya clasificados. Es más importante que cada fila y cada número individual esté bien clasificado y sea correcto que tratar de calcular un total.
 - NO uses la columna "TOTAL" (acumulado/resumen que aparece en la primera hoja o se repite por página) para nada — ni la copies en "items" ni la sumes en "valores_generales".
 - Si el despacho tiene una sola página/ítem, "items" tiene un solo elemento.
 
@@ -208,7 +219,7 @@ IMPORTANTE sobre montos: NO asumas ni asignes la moneda (USD o ARS) de cada cost
       "item": número de ítem,
       "ncm": "código NCM de 8 dígitos",
       "conceptos": [
-        { "concepto": "nombre exacto tal como figura impreso en la fila de liquidación de este ítem", "monto": número }
+        { "concepto": "nombre del concepto YA CLASIFICADO según la lista de arriba (ej: 'Tasa estadística', no 'TASA ESTAD MONT MAX')", "monto": número }
       ]
     }
   ]
@@ -289,7 +300,9 @@ function normalizarConceptoDespacho(raw: string): string {
 
   if (compacto.includes("antidump")) return "Derechos anti-dumping";
   if (compacto.includes("salvaguardia")) return "Salvaguardia";
-  if (compacto.includes("tasaestad") && compacto.includes("max")) return "Tasa estadística monto máximo";
+  // "TASA ESTAD MONT MAX" no es un tributo aparte: es la misma tasa
+  // estadística, calculada por el tope máximo en vez del % normal en los
+  // ítems donde corresponde. Van al mismo total, no a uno separado.
   if (compacto.includes("tasaestad")) return "Tasa estadística";
   if (compacto.includes("ivaadic")) return "IVA adicional";
   if (compacto === "iva" || (compacto.includes("iva") && compacto.length <= 5)) return "IVA";
