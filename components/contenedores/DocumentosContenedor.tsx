@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useToast } from "@/components/ui/use-toast";
 import type { Documento, TipoDocumento } from "@/lib/types";
+import { RevisarItemsDespacho } from "./RevisarItemsDespacho";
 import { RevisionMonedasDespacho } from "./RevisionMonedasDespacho";
 
 interface SlotConfig {
@@ -265,6 +266,12 @@ export function DocumentosContenedor({ contenedorId, documentos }: DocumentosCon
   const despacho = byTipo["despacho_aduana"];
   const datosDespacho = despacho?.datos_extraidos as Record<string, unknown> | undefined;
   const itemsCostosRaw = datosDespacho?.items_costos as { concepto: string; monto: number }[] | undefined;
+  const itemsVerificados = datosDespacho?.items_verificados === true;
+  const itemsDespachoRaw = (datosDespacho?.items ?? []) as {
+    item: number;
+    ncm?: string;
+    conceptos?: { concepto: string; monto: number }[];
+  }[];
   const monedasConfirmadas = datosDespacho?.monedas_confirmadas === true;
   const itemsCostosConfirmados = datosDespacho?.items_costos_confirmados as
     | { concepto: string; monto: number; moneda: "USD" | "ARS"; monto_usd: number }[]
@@ -290,7 +297,19 @@ export function DocumentosContenedor({ contenedorId, documentos }: DocumentosCon
         </CardContent>
       </Card>
 
-      {despacho?.estado === "extraido" && itemsCostosRaw && itemsCostosRaw.length > 0 && !monedasConfirmadas && (
+      {despacho && despacho.estado === "extraido" && !itemsVerificados && (
+        <RevisarItemsDespacho
+          documentoId={despacho.id}
+          contenedorId={contenedorId}
+          itemsIniciales={itemsDespachoRaw.map((it) => ({
+            item: it.item,
+            ncm: it.ncm ?? "",
+            conceptos: it.conceptos ?? [],
+          }))}
+        />
+      )}
+
+      {despacho && itemsVerificados && itemsCostosRaw && itemsCostosRaw.length > 0 && !monedasConfirmadas && (
         <RevisionMonedasDespacho
           documentoId={despacho.id}
           contenedorId={contenedorId}

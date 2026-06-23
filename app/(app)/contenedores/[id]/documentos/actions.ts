@@ -3,9 +3,52 @@
 import { revalidatePath } from "next/cache";
 
 import { autoAnalizarCarpeta } from "@/app/(app)/carpetas/[id]/analizar-costos/actions";
-import { extraerDatosDocumento } from "@/lib/pdf-extractor-documentos";
+import { construirItemsCostosDespacho, extraerDatosDocumento } from "@/lib/pdf-extractor-documentos";
 import { createClient } from "@/lib/supabase/server";
 import type { Documento, TipoDocumento } from "@/lib/types";
+
+export interface ItemDespachoEditable {
+  item: number;
+  ncm: string;
+  conceptos: { concepto: string; monto: number }[];
+}
+
+// El usuario revisa y corrige (NCM y montos) los ítems que la IA extrajo del
+// despacho antes de que se usen para nada — evita que un error de lectura en
+// un PDF de muchas páginas se cuele directo a los costos sin que nadie lo vea.
+export async function confirmarItemsDespacho(
+  documentoId: string,
+  contenedorId: string,
+  items: ItemDespachoEditable[]
+): Promise<{ error?: string }> {
+  const supabase = createClient();
+
+  const { data: doc } = await supabase
+    .from("documentos")
+    .select("datos_extraidos")
+    .eq("id", documentoId)
+    .single();
+  const datosPrevios = (doc?.datos_extraidos ?? {}) as Record<string, unknown>;
+
+  const nuevosDatos = {
+    ...datosPrevios,
+    items,
+    items_verificados: true,
+    items_costos: construirItemsCostosDespacho({ ...datosPrevios, items }),
+  };
+
+  const { error } = await supabase
+    .from("documentos")
+    .update({ datos_extraidos: nuevosDatos })
+    .eq("id", documentoId);
+  if (error) {
+    console.error("confirmarItemsDespacho", error);
+    return { error: error.message };
+  }
+
+  revalidatePath(`/contenedores/${contenedorId}`);
+  return {};
+}
 
 // Re-corre el análisis automático de Sección 3 para todas las carpetas
 // asignadas a este contenedor (un documento del contenedor puede afectar a varias).

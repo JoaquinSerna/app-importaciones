@@ -293,7 +293,7 @@ export async function extraerDatosDocumento(
 // abreviaturas, etc.) a un nombre canónico, para poder agrupar y sumar entre
 // ítems aunque la IA copie el texto con variaciones menores. Si no reconoce
 // el concepto, lo deja tal cual — aparece como "costo nuevo" en Sección 3.
-function normalizarConceptoDespacho(raw: string): string {
+export function normalizarConceptoDespacho(raw: string): string {
   const compacto = raw
     .toLowerCase()
     .replace(/[^a-zà-ÿ]/g, ""); // solo letras (con tildes), sin espacios/puntos/números/códigos
@@ -316,7 +316,7 @@ function normalizarConceptoDespacho(raw: string): string {
 // Suma en código (no en la IA) los montos por ítem del despacho — la IA
 // extrae cada fila individual, que es confiable; pedirle que sume 10-20
 // ítems mentalmente no lo es, y daba un total distinto en cada corrida.
-function construirItemsCostosDespacho(datos: Record<string, unknown>): { concepto: string; monto: number }[] {
+export function construirItemsCostosDespacho(datos: Record<string, unknown>): { concepto: string; monto: number }[] {
   const valoresGenerales = (datos.valores_generales ?? []) as { concepto: string; monto: number }[];
   const items = (datos.items ?? []) as { conceptos?: { concepto: string; monto: number }[] }[];
 
