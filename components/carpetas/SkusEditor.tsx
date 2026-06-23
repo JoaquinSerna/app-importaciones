@@ -1,8 +1,9 @@
 "use client";
 
 import { Fragment, useMemo, useState, useTransition } from "react";
-import { Loader2, RefreshCw } from "lucide-react";
+import { Loader2, RefreshCw, Tag } from "lucide-react";
 
+import { actualizarNombresSkusDesdeDocumentos } from "@/app/(app)/carpetas/[id]/documentos/actions";
 import { recalcularCostosDesdeSkus } from "@/app/(app)/carpetas/[id]/skus-actions";
 import { Button } from "@/components/ui/button";
 import {
@@ -116,12 +117,34 @@ export function SkusEditor({ carpetaId, skus, ncms, costos }: Props) {
     });
   }
 
+  function handleActualizarNombres() {
+    startTransition(async () => {
+      const resultado = await actualizarNombresSkusDesdeDocumentos(carpetaId);
+      if (resultado.error) {
+        toast({ title: "No se pudieron asignar nombres", description: resultado.error, variant: "destructive" });
+        return;
+      }
+      if (!resultado.actualizados) {
+        toast({ title: "Nada para actualizar", description: "Los nombres ya estaban asignados." });
+        return;
+      }
+      toast({ title: `${resultado.actualizados} nombre(s) actualizados desde la Proforma/Packing List` });
+    });
+  }
+
   if (skus.length === 0) {
     return <p className="text-sm text-muted-foreground">Sin SKUs cargados.</p>;
   }
 
   return (
     <div className="space-y-3">
+      <div className="flex justify-end">
+        <Button size="sm" variant="outline" onClick={handleActualizarNombres} disabled={isPending}>
+          {isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> : <Tag className="h-3.5 w-3.5 mr-1" />}
+          Actualizar nombres desde Proforma/Packing List
+        </Button>
+      </div>
+
       {ncmsDistintos > 1 && (
         <div className="rounded-md border bg-amber-50 border-amber-200 px-3 py-2 text-sm flex items-center justify-between gap-3">
           <span className="text-amber-800">

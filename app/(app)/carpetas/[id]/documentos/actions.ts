@@ -58,18 +58,12 @@ export async function subirYExtraerLiquidacion(
 // Solo pisa la descripción de SKUs que todavía no tienen un nombre real
 // (vacíos o que quedaron con el código de NCM puesto automáticamente al crear
 // la carpeta), y solo cuando la cantidad de items coincide 1 a 1 con los SKUs.
-async function sincronizarDescripcionesSkusDesdeDocumento(carpetaId: string, tipo: TipoDocumento) {
-  if (tipo !== "proforma_invoice" && tipo !== "packing_list") return;
-
-  const supabase = createClient();
-
-  const { data: skus } = await supabase
-    .from("skus")
-    .select("id, descripcion, created_at, ncm_aranceles(codigo_ncm)")
-    .eq("carpeta_id", carpetaId)
-    .order("created_at", { ascending: true });
-  if (!skus || skus.length === 0) return;
-
+async function sincronizarDescripcionesDeUnDocumento(
+  supabase: ReturnType<typeof createClient>,
+  carpetaId: string,
+  tipo: "proforma_invoice" | "packing_list",
+  skus: { id: string; descripcion: string | null; ncm_aranceles: { codigo_ncm: string } | null }[]
+): Promise<{ actualizados: number; itemsEncontrados: number }> {
   const { data: doc } = await supabase
     .from("documentos")
     .select("datos_extraidos")
@@ -81,19 +75,86 @@ async function sincronizarDescripcionesSkusDesdeDocumento(carpetaId: string, tip
     .maybeSingle();
 
   const items = (doc?.datos_extraidos?.items ?? []) as { descripcion?: string }[];
-  if (items.length === 0 || items.length !== skus.length) return;
+  if (items.length === 0 || items.length !== skus.length) {
+    return { actualizados: 0, itemsEncontrados: items.length };
+  }
 
+  let actualizados = 0;
   for (let i = 0; i < skus.length; i++) {
     const sku = skus[i];
     const descripcionNueva = items[i]?.descripcion?.trim();
     if (!descripcionNueva) continue;
 
-    const codigoNcm = (sku.ncm_aranceles as unknown as { codigo_ncm: string } | null)?.codigo_ncm ?? null;
+    const codigoNcm = sku.ncm_aranceles?.codigo_ncm ?? null;
     const esPlaceholder = !sku.descripcion || sku.descripcion === codigoNcm;
     if (!esPlaceholder) continue;
 
     await supabase.from("skus").update({ descripcion: descripcionNueva }).eq("id", sku.id);
+    actualizados++;
   }
+  return { actualizados, itemsEncontrados: items.length };
+}
+
+async function sincronizarDescripcionesSkusDesdeDocumento(carpetaId: string, tipo: TipoDocumento) {
+  if (tipo !== "proforma_invoice" && tipo !== "packing_list") return;
+  const supabase = createClient();
+
+  const { data: skus } = await supabase
+    .from("skus")
+    .select("id, descripcion, created_at, ncm_aranceles(codigo_ncm)")
+    .eq("carpeta_id", carpetaId)
+    .order("created_at", { ascending: true });
+  if (!skus || skus.length === 0) return;
+
+  await sincronizarDescripcionesDeUnDocumento(
+    supabase,
+    carpetaId,
+    tipo,
+    skus as unknown as { id: string; descripcion: string | null; ncm_aranceles: { codigo_ncm: string } | null }[]
+  );
+}
+
+// Acción manual para carpetas donde la Proforma/Packing List ya estaban
+// subidas antes de que existiera el sync automático — permite reintentarlo
+// sin tener que volver a subir el documento.
+export async function actualizarNombresSkusDesdeDocumentos(
+  carpetaId: string
+): Promise<{ error?: string; actualizados?: number }> {
+  const supabase = createClient();
+
+  const { data: skus } = await supabase
+    .from("skus")
+    .select("id, descripcion, created_at, ncm_aranceles(codigo_ncm)")
+    .eq("carpeta_id", carpetaId)
+    .order("created_at", { ascending: true });
+  if (!skus || skus.length === 0) {
+    return { error: "Esta carpeta no tiene SKUs cargados." };
+  }
+
+  const skusTyped = skus as unknown as { id: string; descripcion: string | null; ncm_aranceles: { codigo_ncm: string } | null }[];
+
+  const resultadoProforma = await sincronizarDescripcionesDeUnDocumento(supabase, carpetaId, "proforma_invoice", skusTyped);
+  if (resultadoProforma.actualizados > 0) {
+    revalidatePath(`/carpetas/${carpetaId}`);
+    return { actualizados: resultadoProforma.actualizados };
+  }
+
+  const resultadoPacking = await sincronizarDescripcionesDeUnDocumento(supabase, carpetaId, "packing_list", skusTyped);
+  if (resultadoPacking.actualizados > 0) {
+    revalidatePath(`/carpetas/${carpetaId}`);
+    return { actualizados: resultadoPacking.actualizados };
+  }
+
+  const itemsEncontrados = Math.max(resultadoProforma.itemsEncontrados, resultadoPacking.itemsEncontrados);
+  if (itemsEncontrados === 0) {
+    return { error: "No se encontró Proforma Invoice ni Packing List extraídos con items en esta carpeta." };
+  }
+  if (itemsEncontrados !== skus.length) {
+    return {
+      error: `El documento tiene ${itemsEncontrados} ítems pero la carpeta tiene ${skus.length} SKUs — no coinciden 1 a 1, no se puede asignar el nombre automáticamente.`,
+    };
+  }
+  return { actualizados: 0 };
 }
 
 /** Sube un documento de cualquier tipo, lo persiste en DB y extrae datos con IA */
