@@ -2,9 +2,36 @@
 
 import { revalidatePath } from "next/cache";
 
+import { resincronizarAntiDumpingDeContenedor } from "@/app/(app)/contenedores/[id]/documentos/actions";
 import { calcularArancelPonderado, calcularCascada, costosComoLineas } from "@/lib/calculadora-costos";
 import { createClient } from "@/lib/supabase/server";
 import type { NcmArancel, ParametrosGlobales, TipoImportacion } from "@/lib/types";
+
+// Cuando se marca/desmarca un SKU como "paga dumping" hay que re-prorratear
+// el anti-dumping del despacho entre los SKUs marcados, en TODOS los
+// contenedores a los que esté asignada esta carpeta.
+async function resincronizarAntiDumpingDeCarpeta(carpetaId: string) {
+  const supabase = createClient();
+  const { data: asignaciones } = await supabase
+    .from("carpeta_contenedores")
+    .select("contenedor_id")
+    .eq("carpeta_id", carpetaId);
+  for (const a of asignaciones ?? []) {
+    await resincronizarAntiDumpingDeContenedor(a.contenedor_id);
+  }
+}
+
+export async function actualizarPagaDumping(carpetaId: string, skuId: string, pagaDumping: boolean): Promise<{ error?: string }> {
+  const supabase = createClient();
+  const { error } = await supabase.from("skus").update({ paga_dumping: pagaDumping }).eq("id", skuId);
+  if (error) {
+    console.error("actualizarPagaDumping", error);
+    return { error: error.message };
+  }
+  await resincronizarAntiDumpingDeCarpeta(carpetaId);
+  revalidatePath(`/carpetas/${carpetaId}`);
+  return {};
+}
 
 export interface SkuInput {
   codigoSku?: string;

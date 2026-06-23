@@ -22,10 +22,14 @@ async function autoAnalizarCarpetasDelContenedor(contenedorId: string) {
 
 const BUCKET_DOCUMENTOS = "documentos";
 
-// Palabras clave para buscar en concepto del costo de la carpeta
+function esAntiDumping(concepto: string) {
+  return /anti-?dumping/i.test(concepto);
+}
+
+// Palabras clave para buscar en concepto del costo de la carpeta.
 // IVA adicional va ANTES de IVA para que el match más específico tenga precedencia.
-// "Derechos anti-dumping" y "Tasa estadística monto máximo" se excluyen para que
-// no se confundan con "Derechos de importación" / "Tasa estadística" comunes.
+// El anti-dumping se excluye de "derecho" porque se maneja aparte (ver
+// sincronizarAntiDumping): solo afecta a los SKUs marcados como paga_dumping.
 const TRIBUTO_KEYWORDS: { keywords: string[]; excluir?: string[] }[] = [
   { keywords: ["derecho"], excluir: ["anti-dumping", "antidumping"] },
   { keywords: ["tasa estadística", "tasa estadistica", "estadísti"], excluir: ["máximo", "maximo"] },
@@ -46,16 +50,16 @@ interface ItemCostoConfirmado {
   monto_usd: number;
 }
 
+// Tributos generales (derechos, tasa, IVA, ganancias): se prorratean por FOB
+// entre TODAS las carpetas del contenedor, porque aplican a toda la mercadería.
 async function sincronizarCostosRealesDeDespacho(
   contenedorId: string,
   itemsCostosConfirmados: ItemCostoConfirmado[]
 ) {
   const supabase = createClient();
-  const tributos = itemsCostosConfirmados.filter((i) => !esValorMercaderia(i.concepto));
+  const tributos = itemsCostosConfirmados.filter((i) => !esValorMercaderia(i.concepto) && !esAntiDumping(i.concepto));
   if (tributos.length === 0) return;
 
-  // Los tributos son % del valor de la mercadería (CIF/FOB), no del volumen —
-  // se prorratean por proporción de FOB entre las carpetas del contenedor.
   const { data: asignaciones } = await supabase
     .from("carpeta_contenedores")
     .select("carpeta_id, carpetas(fob_total_usd)")
@@ -69,9 +73,7 @@ async function sincronizarCostosRealesDeDespacho(
 
   for (const asignacion of asignaciones) {
     const fobCarpeta = (asignacion.carpetas as unknown as { fob_total_usd: number } | null)?.fob_total_usd ?? 0;
-    const fobProporcion = fobTotal > 0
-      ? fobCarpeta / fobTotal
-      : 1 / asignaciones.length;
+    const fobProporcion = fobTotal > 0 ? fobCarpeta / fobTotal : 1 / asignaciones.length;
 
     const { data: costos } = await supabase
       .from("costos")
@@ -101,6 +103,58 @@ async function sincronizarCostosRealesDeDespacho(
     }
 
     revalidatePath(`/carpetas/${asignacion.carpeta_id}`);
+  }
+}
+
+// Anti-dumping (u otro tributo NCM-específico con el mismo nombre): el monto
+// TOTAL del despacho se prorratea por FOB únicamente entre los SKUs que el
+// usuario marcó como "paga_dumping" en la pestaña SKUs de su carpeta — nunca
+// entre todos los SKUs del contenedor.
+async function sincronizarAntiDumping(contenedorId: string, itemsCostosConfirmados: ItemCostoConfirmado[]) {
+  const item = itemsCostosConfirmados.find((i) => esAntiDumping(i.concepto));
+  if (!item || item.monto_usd <= 0) return;
+
+  const supabase = createClient();
+  const { data: asignaciones } = await supabase
+    .from("carpeta_contenedores")
+    .select("carpeta_id")
+    .eq("contenedor_id", contenedorId);
+  const carpetaIds = (asignaciones ?? []).map((a) => a.carpeta_id);
+  if (carpetaIds.length === 0) return;
+
+  const { data: skus } = await supabase
+    .from("skus")
+    .select("carpeta_id, cantidad, precio_unitario_fob_usd")
+    .in("carpeta_id", carpetaIds)
+    .eq("paga_dumping", true);
+
+  const fobPorCarpeta = new Map<string, number>();
+  for (const s of skus ?? []) {
+    const fob = (s.cantidad ?? 0) * (s.precio_unitario_fob_usd ?? 0);
+    fobPorCarpeta.set(s.carpeta_id, (fobPorCarpeta.get(s.carpeta_id) ?? 0) + fob);
+  }
+  const fobTotalDumping = Array.from(fobPorCarpeta.values()).reduce((a, v) => a + v, 0);
+
+  // Limpiar asignaciones previas en todas las carpetas del contenedor antes de
+  // re-aplicar — si una carpeta ya no tiene SKUs marcados, queda en 0.
+  await supabase.from("costos").delete().in("carpeta_id", carpetaIds).eq("concepto", item.concepto).eq("origen", "real");
+
+  if (fobTotalDumping <= 0) return;
+
+  for (const [carpetaId, fobCarpeta] of Array.from(fobPorCarpeta.entries())) {
+    const monto = item.monto_usd * (fobCarpeta / fobTotalDumping);
+    if (monto <= 0) continue;
+    await supabase.from("costos").insert({
+      carpeta_id: carpetaId,
+      nivel: "carpeta" as const,
+      concepto: item.concepto,
+      categoria: "otro" as const,
+      origen: "real" as const,
+      monto_estimado_usd: 0,
+      monto_real_usd: monto,
+      notas: "Prorrateado por FOB entre los SKUs marcados como 'paga dumping'.",
+    });
+    revalidatePath(`/carpetas/${carpetaId}`);
   }
 }
 
@@ -164,158 +218,6 @@ export async function eliminarDocumentoContenedor(contenedorId: string, document
   revalidatePath(`/contenedores/${contenedorId}`);
 }
 
-interface ItemPorNcmCrudo {
-  ncm: string;
-  fob_usd?: number;
-  derechos_importacion?: number;
-  tasa_estadistica?: number;
-  iva?: number;
-  iva_adicional?: number;
-  ganancias?: number;
-  otros_tributos?: { concepto: string; monto: number }[];
-}
-
-interface ItemPorNcmConfirmado {
-  ncm: string;
-  otros_tributos: { concepto: string; monto_usd: number }[];
-}
-
-// Los tributos específicos de un NCM (anti-dumping, salvaguardias, etc.) no
-// pasan por la confirmación de moneda ítem por ítem — usamos la misma moneda
-// que el usuario eligió para "Derechos de importación" (el tributo general
-// más comparable), ya que en la práctica todo el despacho usa una sola moneda.
-function convertirItemsPorNcm(
-  itemsPorNcm: ItemPorNcmCrudo[],
-  moneda: "USD" | "ARS",
-  tipoCambio: number | null
-): ItemPorNcmConfirmado[] {
-  const factor = moneda === "USD" ? 1 : 1 / (tipoCambio || 1);
-  return itemsPorNcm.map((item) => ({
-    ncm: item.ncm,
-    otros_tributos: (item.otros_tributos ?? []).map((o) => ({
-      concepto: o.concepto,
-      monto_usd: (o.monto ?? 0) * factor,
-    })),
-  }));
-}
-
-export interface SkuParaTributoNcm {
-  skuId: string;
-  carpetaId: string;
-  carpetaNumero: string;
-  descripcion: string | null;
-  ncmCodigo: string | null;
-  fobUsd: number;
-  tributosActuales: { concepto: string; montoUsd: number }[];
-}
-
-// Lista todos los SKUs de las carpetas asignadas a este contenedor, con
-// cualquier tributo específico por NCM que ya tengan cargado — para que el
-// usuario elija a mano a quién corresponde (ej. derechos anti-dumping),
-// en vez de que la IA intente adivinarlo por ítem del despacho.
-export async function listarSkusParaTributoNcm(contenedorId: string): Promise<SkuParaTributoNcm[]> {
-  const supabase = createClient();
-
-  const { data: asignaciones } = await supabase
-    .from("carpeta_contenedores")
-    .select("carpeta_id, carpetas(numero_carpeta)")
-    .eq("contenedor_id", contenedorId);
-  const carpetaIds = (asignaciones ?? []).map((a) => a.carpeta_id);
-  if (carpetaIds.length === 0) return [];
-
-  const numeroPorCarpeta = new Map(
-    (asignaciones ?? []).map((a) => [
-      a.carpeta_id,
-      (a.carpetas as unknown as { numero_carpeta: string } | null)?.numero_carpeta ?? "—",
-    ])
-  );
-
-  const [{ data: skus }, { data: costosNcm }] = await Promise.all([
-    supabase
-      .from("skus")
-      .select("id, carpeta_id, descripcion, cantidad, precio_unitario_fob_usd, ncm_aranceles(codigo_ncm)")
-      .in("carpeta_id", carpetaIds)
-      .order("created_at", { ascending: true }),
-    supabase
-      .from("costos")
-      .select("carpeta_id, concepto, monto_real_usd, ncm_codigo")
-      .in("carpeta_id", carpetaIds)
-      .not("ncm_codigo", "is", null),
-  ]);
-
-  return (skus ?? []).map((s) => {
-    const ncmCodigo = (s.ncm_aranceles as unknown as { codigo_ncm: string } | null)?.codigo_ncm ?? null;
-    const tributosActuales = (costosNcm ?? [])
-      .filter((c) => c.carpeta_id === s.carpeta_id && c.ncm_codigo === ncmCodigo)
-      .map((c) => ({ concepto: c.concepto, montoUsd: c.monto_real_usd ?? 0 }));
-    return {
-      skuId: s.id,
-      carpetaId: s.carpeta_id,
-      carpetaNumero: numeroPorCarpeta.get(s.carpeta_id) ?? "—",
-      descripcion: s.descripcion,
-      ncmCodigo,
-      fobUsd: (s.cantidad ?? 0) * (s.precio_unitario_fob_usd ?? 0),
-      tributosActuales,
-    };
-  });
-}
-
-export interface AsignacionTributoNcm {
-  skuId: string;
-  carpetaId: string;
-  ncmCodigo: string;
-  montoUsd: number;
-}
-
-// Reemplaza, para el concepto dado, todos los costos con ncm_codigo en las
-// carpetas de este contenedor por la selección manual del usuario.
-export async function asignarTributoPorNcm(
-  contenedorId: string,
-  concepto: string,
-  asignaciones: AsignacionTributoNcm[]
-): Promise<{ error?: string }> {
-  const supabase = createClient();
-
-  const { data: asignacionesContenedor } = await supabase
-    .from("carpeta_contenedores")
-    .select("carpeta_id")
-    .eq("contenedor_id", contenedorId);
-  const carpetaIds = (asignacionesContenedor ?? []).map((a) => a.carpeta_id);
-  if (carpetaIds.length === 0) return { error: "Este contenedor no tiene carpetas asignadas." };
-
-  const { error: deleteError } = await supabase
-    .from("costos")
-    .delete()
-    .in("carpeta_id", carpetaIds)
-    .eq("concepto", concepto)
-    .not("ncm_codigo", "is", null);
-  if (deleteError) return { error: deleteError.message };
-
-  const validas = asignaciones.filter((a) => a.montoUsd > 0);
-  if (validas.length > 0) {
-    const { error: insertError } = await supabase.from("costos").insert(
-      validas.map((a) => ({
-        carpeta_id: a.carpetaId,
-        nivel: "carpeta" as const,
-        concepto,
-        categoria: "otro" as const,
-        origen: "real" as const,
-        monto_estimado_usd: 0,
-        monto_real_usd: a.montoUsd,
-        ncm_codigo: a.ncmCodigo,
-        notas: `Asignado manualmente al NCM ${a.ncmCodigo}`,
-      }))
-    );
-    if (insertError) return { error: insertError.message };
-  }
-
-  for (const carpetaId of Array.from(new Set([...carpetaIds, ...validas.map((a) => a.carpetaId)]))) {
-    revalidatePath(`/carpetas/${carpetaId}`);
-  }
-  revalidatePath(`/contenedores/${contenedorId}`);
-  return {};
-}
-
 export async function confirmarMonedasDespacho(
   documentoId: string,
   contenedorId: string,
@@ -343,16 +245,10 @@ export async function confirmarMonedasDespacho(
     .single();
   const datosPrevios = (doc?.datos_extraidos ?? {}) as Record<string, unknown>;
 
-  const itemsPorNcmCrudo = (datosPrevios.items_por_ncm ?? []) as ItemPorNcmCrudo[];
-  const itemDerecho = items.find((i) => /derecho/i.test(i.concepto) && !/anti-?dumping/i.test(i.concepto));
-  const monedaDominante = itemDerecho?.moneda ?? items[0]?.moneda ?? "USD";
-  const itemsPorNcmConfirmado = convertirItemsPorNcm(itemsPorNcmCrudo, monedaDominante, tipoCambio);
-
   const nuevosDatos = {
     ...datosPrevios,
     tipo_cambio: tipoCambio,
     items_costos_confirmados: itemsConfirmados,
-    items_por_ncm_confirmado: itemsPorNcmConfirmado,
     monedas_confirmadas: true,
   };
 
@@ -363,12 +259,31 @@ export async function confirmarMonedasDespacho(
   if (error) throw new Error(error.message);
 
   await sincronizarCostosRealesDeDespacho(contenedorId, itemsConfirmados);
-  // Los tributos específicos por NCM (anti-dumping, etc.) ya NO se asignan
-  // automáticamente acá — la extracción por ítem no es confiable y terminaba
-  // aplicándolos a SKUs que no correspondían. Ahora se asignan a mano con
-  // asignarTributoPorNcm() (ver más abajo), eligiendo exactamente qué SKU.
-  void itemsPorNcmConfirmado;
+  await sincronizarAntiDumping(contenedorId, itemsConfirmados);
   await autoAnalizarCarpetasDelContenedor(contenedorId);
 
+  revalidatePath(`/contenedores/${contenedorId}`);
+}
+
+// Re-sincroniza el anti-dumping con la selección actual de SKUs (paga_dumping)
+// sin tener que volver a confirmar las monedas del despacho. Se llama cada vez
+// que el usuario tilda/destilda un SKU en la pestaña SKUs de la carpeta.
+export async function resincronizarAntiDumpingDeContenedor(contenedorId: string) {
+  const supabase = createClient();
+  const { data: docs } = await supabase
+    .from("documentos")
+    .select("datos_extraidos")
+    .eq("contenedor_id", contenedorId)
+    .eq("tipo", "despacho_aduana")
+    .eq("estado", "extraido")
+    .order("created_at", { ascending: false })
+    .limit(1);
+
+  const datos = docs?.[0]?.datos_extraidos as Record<string, unknown> | undefined;
+  if (!datos?.monedas_confirmadas) return;
+
+  const itemsConfirmados = (datos.items_costos_confirmados ?? []) as ItemCostoConfirmado[];
+  await sincronizarAntiDumping(contenedorId, itemsConfirmados);
+  await autoAnalizarCarpetasDelContenedor(contenedorId);
   revalidatePath(`/contenedores/${contenedorId}`);
 }

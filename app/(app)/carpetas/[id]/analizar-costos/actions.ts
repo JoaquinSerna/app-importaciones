@@ -160,8 +160,13 @@ export async function analizarCostosReales(carpetaId: string): Promise<Resultado
           | undefined;
         if (itemsConfirmados) {
           const esValorMercaderia = (c: string) => /fob|flete|seguro|cif/i.test(c);
+          const esAntiDumping = (c: string) => /anti-?dumping/i.test(c);
           for (const item of itemsConfirmados) {
-            if (esValorMercaderia(item.concepto)) continue;
+            // Anti-dumping no entra acá: se prorratea por FOB solo entre los
+            // SKUs marcados como "paga dumping" (ver pestaña SKUs), no por la
+            // proporción genérica de toda la carpeta. Eso ya queda resuelto
+            // en la tabla "costos" directamente al confirmar el despacho.
+            if (esValorMercaderia(item.concepto) || esAntiDumping(item.concepto)) continue;
             const monto = item.monto_usd * fobProporcion;
             if (monto > 0) costosReales.push({ concepto: item.concepto, monto_usd: monto, fuente: `Despacho de aduana${sufijoContenedor}` });
           }

@@ -183,6 +183,7 @@ export interface Sku {
   peso_kg: number | null;
   cbm: number | null;
   ncm_id: string | null;
+  paga_dumping: boolean;
   created_at: string;
 }
 

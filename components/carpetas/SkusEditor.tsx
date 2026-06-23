@@ -4,7 +4,7 @@ import { Fragment, useMemo, useState, useTransition } from "react";
 import { Loader2, RefreshCw, Tag } from "lucide-react";
 
 import { actualizarNombresSkusDesdeDocumentos } from "@/app/(app)/carpetas/[id]/documentos/actions";
-import { recalcularCostosDesdeSkus } from "@/app/(app)/carpetas/[id]/skus-actions";
+import { actualizarPagaDumping, recalcularCostosDesdeSkus } from "@/app/(app)/carpetas/[id]/skus-actions";
 import { Button } from "@/components/ui/button";
 import {
   Table,
@@ -26,7 +26,10 @@ interface CostoSimple {
   concepto: string;
   monto_estimado_usd: number;
   monto_real_usd: number | null;
-  ncm_codigo: string | null;
+}
+
+function esAntiDumping(concepto: string) {
+  return /anti-?dumping/i.test(concepto);
 }
 
 interface DesgloseItem {
@@ -42,27 +45,25 @@ interface Props {
   costos: CostoSimple[];
 }
 
-export function SkusEditor({ carpetaId, skus, ncms, costos }: Props) {
+export function SkusEditor({ carpetaId, skus, costos }: Props) {
   const { toast } = useToast();
   const [isPending, startTransition] = useTransition();
   const [expandidos, setExpandidos] = useState<Set<string>>(new Set());
 
   // Cada línea de costo se prorratea entre SKUs según su base correcta:
   // FOB para impuestos/seguro/honorarios (% del valor de la mercadería),
-  // CBM para flete/THC/etc. (escalan con el volumen). Los tributos con
-  // ncm_codigo (ej. derechos anti-dumping) solo afectan a los SKUs con ESE NCM.
+  // CBM para flete/THC/etc. (escalan con el volumen). El anti-dumping es un
+  // caso especial: solo se reparte (por FOB) entre los SKUs marcados como
+  // "paga dumping" — nunca entre todos.
   const { estimadoPorSku, realPorSku, desglosePorSku } = useMemo(() => {
-    const codigoNcmDe = (sku: Sku) => ncms.find((n) => n.id === sku.ncm_id)?.codigo_ncm ?? null;
-
     const estimado = new Map<string, number>();
     const real = new Map<string, number>();
     const desglose = new Map<string, DesgloseItem[]>();
     skus.forEach((s) => { estimado.set(s.id, 0); real.set(s.id, 0); desglose.set(s.id, []); });
 
     for (const costo of costos) {
-      const skusObjetivo = costo.ncm_codigo
-        ? skus.filter((s) => codigoNcmDe(s) === costo.ncm_codigo)
-        : skus;
+      const esDumping = esAntiDumping(costo.concepto);
+      const skusObjetivo = esDumping ? skus.filter((s) => s.paga_dumping) : skus;
       if (skusObjetivo.length === 0) continue;
 
       const items = skusObjetivo.map((s) => ({
@@ -70,7 +71,7 @@ export function SkusEditor({ carpetaId, skus, ncms, costos }: Props) {
         cbm: s.cbm ?? 0,
         fob: (s.cantidad ?? 0) * (s.precio_unitario_fob_usd ?? 0),
       }));
-      const criterio = costo.ncm_codigo ? "fob" : criterioPorConcepto(costo.concepto);
+      const criterio = esDumping ? "fob" : criterioPorConcepto(costo.concepto);
 
       const asigEst = prorratear(costo.monto_estimado_usd, items, criterio);
       const asigReal = costo.monto_real_usd != null ? prorratear(costo.monto_real_usd, items, criterio) : [];
@@ -91,7 +92,7 @@ export function SkusEditor({ carpetaId, skus, ncms, costos }: Props) {
       }
     }
     return { estimadoPorSku: estimado, realPorSku: real, desglosePorSku: desglose };
-  }, [skus, costos, ncms]);
+  }, [skus, costos]);
 
   const hayReal = costos.some((c) => c.monto_real_usd != null);
 
@@ -114,6 +115,15 @@ export function SkusEditor({ carpetaId, skus, ncms, costos }: Props) {
         return;
       }
       toast({ title: "Costos recalculados con el NCM ponderado de los SKUs" });
+    });
+  }
+
+  function handleTogglePagaDumping(sku: Sku) {
+    startTransition(async () => {
+      const resultado = await actualizarPagaDumping(carpetaId, sku.id, !sku.paga_dumping);
+      if (resultado.error) {
+        toast({ title: "No se pudo actualizar", description: resultado.error, variant: "destructive" });
+      }
     });
   }
 
@@ -168,6 +178,7 @@ export function SkusEditor({ carpetaId, skus, ncms, costos }: Props) {
             <TableRow>
               <TableHead />
               <TableHead>SKU</TableHead>
+              <TableHead className="text-center">Paga dumping</TableHead>
               <TableHead className="text-right">Cantidad</TableHead>
               <TableHead className="text-right">FOB unit.</TableHead>
               <TableHead className="text-right">Costo total (est.)</TableHead>
@@ -199,6 +210,15 @@ export function SkusEditor({ carpetaId, skus, ncms, costos }: Props) {
                       )}
                     </TableCell>
                     <TableCell>{sku.codigo_sku ?? sku.descripcion ?? "-"}</TableCell>
+                    <TableCell className="text-center">
+                      <input
+                        type="checkbox"
+                        checked={sku.paga_dumping}
+                        disabled={isPending}
+                        onChange={() => handleTogglePagaDumping(sku)}
+                        className="h-4 w-4"
+                      />
+                    </TableCell>
                     <TableCell className="text-right">{sku.cantidad}</TableCell>
                     <TableCell className="text-right">{formatUsd(sku.precio_unitario_fob_usd)}</TableCell>
                     <TableCell className="text-right font-medium">{formatUsd(totalEst)}</TableCell>
@@ -209,7 +229,7 @@ export function SkusEditor({ carpetaId, skus, ncms, costos }: Props) {
                   {expandido && desglose.length > 0 && (
                     <TableRow className="bg-muted/30">
                       <TableCell />
-                      <TableCell colSpan={hayReal ? 6 : 4} className="py-2">
+                      <TableCell colSpan={hayReal ? 8 : 6} className="py-2">
                         <div className="text-xs space-y-1">
                           <div className="flex justify-between font-medium text-muted-foreground">
                             <span>Concepto</span>

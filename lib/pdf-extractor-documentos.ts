@@ -183,16 +183,13 @@ Analizá este despacho de aduana y extraé la siguiente información en JSON.
 
 IMPORTANTE sobre montos: NO asumas ni asignes la moneda (USD o ARS) de cada costo — eso lo va a confirmar el usuario manualmente después, ya que los despachos varían y la IA no puede adivinar esto de forma confiable. Solo extraé el número exactamente como aparece en el documento, sin signo de moneda.
 
-"items_costos" y "items_por_ncm" son OBLIGATORIOS LOS DOS, no son alternativos — uno no reemplaza al otro:
-- "items_costos" SIEMPRE debe llevar el TOTAL de cada concepto general (FOB, Flete, Seguro, CIF, Derechos de importación, Tasa estadística, IVA, IVA adicional, Anticipo de ganancias), sumando el monto de TODOS los ítems del despacho. Completalo siempre que el concepto aparezca en el documento, incluso si también vas a desglosarlo por ítem en "items_por_ncm". Omití solo los conceptos que no aparezcan en absoluto en el documento.
-- "items_por_ncm" es ADEMÁS (no en lugar de) un detalle por ítem de esos mismos 5 conceptos, más cualquier tributo extra que solo aplique a un NCM puntual (anti-dumping, salvaguardias, aranceles especiales) en "otros_tributos".
-Ejemplo: si el despacho tiene 3 ítems y el IVA total es la suma de los 3, "items_costos" debe tener {"concepto":"IVA","monto": esa suma total}, Y ADEMÁS cada ítem en "items_por_ncm" debe tener su "iva" individual. Los tributos de "otros_tributos" (anti-dumping, etc.) son la única excepción: esos NO se agregan a "items_costos" porque no son generales.
+En "items_costos" incluí TODOS los conceptos de valor o costo del despacho COMPLETO (FOB, Flete, Seguro, CIF, Derechos de importación, Tasa estadística, IVA, IVA adicional, Anticipo de ganancias, Derechos anti-dumping, salvaguardias, aranceles especiales, y cualquier otro tributo o concepto monetario que aparezca), cada uno con su monto TOTAL sumando todos los ítems del despacho. Omití los conceptos que no aparezcan en el documento — no inventes valores en cero.
 
 IMPORTANTE sobre despachos con múltiples ítems/páginas (cada ítem es una posición NCM distinta): la tabla de liquidación tiene dos columnas de importe — "DEL ITEM" (el monto de ESE ítem puntual) y "TOTAL" (un acumulado/resumen que suele aparecer en la primera hoja o repetirse en cada página, y que YA es la suma de todo el despacho hecha por el propio documento).
 - Para calcular el monto total de cada concepto en "items_costos", SUMÁ la columna "DEL ITEM" de TODOS los ítems/páginas (un valor por cada ítem, sumados entre sí). Esto es correcto y esperado.
 - NO uses ni sumes la columna "TOTAL" de la primera hoja (o la que se repite por página) como si fuera un ítem más — esa columna ya es el resultado final, sumarla de nuevo duplica el monto. Podés usarla solo como verificación: el total que vos calculés sumando "DEL ITEM" de todos los ítems debería coincidir con esa columna "TOTAL".
 
-Además, en "items_por_ncm" incluí el detalle de cada ítem por separado (su NCM y los montos de su columna "DEL ITEM"), para poder distribuir los costos reales según el NCM de cada producto.
+Si un tributo como "Derechos anti-dumping" solo aparece en algunos ítems del despacho (no en todos), igual sumá el monto de los ítems que lo tengan y poné ese total en "items_costos" con su nombre — no hace falta indicar a qué ítems corresponde, eso lo va a definir el usuario manualmente en la app.
 
 {
   "numero_despacho": "número completo del despacho (ej: 012D-2024-000123)",
@@ -211,24 +208,10 @@ Además, en "items_por_ncm" incluí el detalle de cada ítem por separado (su NC
     { "concepto": "Tasa estadística", "monto": número },
     { "concepto": "IVA", "monto": número },
     { "concepto": "IVA adicional", "monto": número },
-    { "concepto": "Anticipo de ganancias", "monto": número }
-  ],
-  "items_por_ncm": [
-    {
-      "ncm": "código NCM de 8 dígitos de este ítem",
-      "fob_usd": número (FOB de este ítem, columna DEL ITEM),
-      "derechos_importacion": número,
-      "tasa_estadistica": número,
-      "iva": número,
-      "iva_adicional": número,
-      "ganancias": número,
-      "otros_tributos": [
-        { "concepto": "ej: Derechos anti-dumping, Arancel especial, etc. — cualquier tributo que NO sea de los 5 estándar arriba y que aplique solo a ESTE ítem/NCM", "monto": número }
-      ]
-    }
+    { "concepto": "Anticipo de ganancias", "monto": número },
+    { "concepto": "Derechos anti-dumping", "monto": número, "_comentario": "solo si aparece en el despacho" }
   ]
 }
-IMPORTANTE: "otros_tributos" es donde van los tributos específicos de un NCM puntual (ej. derechos anti-dumping, salvaguardias) — estos NO deben sumarse al total de "items_costos" como un tributo general, porque solo aplican a ese ítem y no a todo el despacho. Si ves un concepto así en la liquidación de un ítem, ponelo en "otros_tributos" de ESE ítem, no en "items_costos".
 Solo devolvé el JSON, sin texto adicional.`,
 };
 
