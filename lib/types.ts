@@ -45,6 +45,7 @@ export interface ParametrosGlobales {
   gasto_terminal_usd: number; // depósito fiscal — se multiplica por cant. contenedores
   digitalizacion_usd: number;
   gastos_operativos_usd: number;
+  gastos_locales_usd: number;
   tramitaciones_usd: number;
   // Porcentuales
   seguro_pct: number;

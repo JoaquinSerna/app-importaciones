@@ -33,6 +33,7 @@ const SECCIONES: { titulo: string; campos: Campo[] }[] = [
       { key: "gastoTerminalUsd", label: "Depósito fiscal por contenedor (USD)", columnaSql: "gasto_terminal_usd" },
       { key: "digitalizacionUsd", label: "Digitalización de despacho (USD)", columnaSql: "digitalizacion_usd" },
       { key: "gastosOperativosUsd", label: "Gastos operativos (USD)", columnaSql: "gastos_operativos_usd" },
+      { key: "gastosLocalesUsd", label: "Gastos locales (USD)", columnaSql: "gastos_locales_usd" },
       { key: "tramitacionesUsd", label: "Tramitaciones (USD)", columnaSql: "tramitaciones_usd" },
     ],
   },

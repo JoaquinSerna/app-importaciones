@@ -81,6 +81,7 @@ export default async function ParametrosPage() {
                 <TableHead className="text-right">Dep. fiscal</TableHead>
                 <TableHead className="text-right">Digital.</TableHead>
                 <TableHead className="text-right">G. Oper.</TableHead>
+                <TableHead className="text-right">G. Locales</TableHead>
                 <TableHead className="text-right">Tramit.</TableHead>
                 <TableHead className="text-right">Seguro %</TableHead>
                 <TableHead className="text-right">Honor. %</TableHead>
@@ -102,6 +103,7 @@ export default async function ParametrosPage() {
                   <TableCell className="text-right">{fmt(p.gasto_terminal_usd)}</TableCell>
                   <TableCell className="text-right">{fmt(p.digitalizacion_usd)}</TableCell>
                   <TableCell className="text-right">{fmt(p.gastos_operativos_usd)}</TableCell>
+                  <TableCell className="text-right">{fmt(p.gastos_locales_usd)}</TableCell>
                   <TableCell className="text-right">{fmt(p.tramitaciones_usd)}</TableCell>
                   <TableCell className="text-right">{fmt(p.seguro_pct)}</TableCell>
                   <TableCell className="text-right">{fmt(p.honorarios_despachante_pct)}</TableCell>
@@ -114,7 +116,7 @@ export default async function ParametrosPage() {
               ))}
               {historialList.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={16} className="text-center text-muted-foreground">
+                  <TableCell colSpan={17} className="text-center text-muted-foreground">
                     Sin versiones de parámetros registradas.
                   </TableCell>
                 </TableRow>

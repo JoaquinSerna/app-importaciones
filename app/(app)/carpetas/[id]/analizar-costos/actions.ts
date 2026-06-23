@@ -70,7 +70,7 @@ export async function analizarCostosReales(carpetaId: string): Promise<Resultado
     for (const asignacion of asignaciones) {
       const numeroCont = (asignacion.contenedores as unknown as { numero_contenedor: string | null } | null)?.numero_contenedor ?? "—";
 
-      const [{ data: docsContData }, { data: cbmsCont }] = await Promise.all([
+      const [{ data: docsContData }, { data: cbmsCont }, { data: fobsCont }] = await Promise.all([
         supabase
           .from("documentos")
           .select("tipo, datos_extraidos")
@@ -80,24 +80,39 @@ export async function analizarCostosReales(carpetaId: string): Promise<Resultado
           .from("carpeta_contenedores")
           .select("cbm_asignado")
           .eq("contenedor_id", asignacion.contenedor_id),
+        supabase
+          .from("carpeta_contenedores")
+          .select("carpetas(fob_total_usd)")
+          .eq("contenedor_id", asignacion.contenedor_id),
       ]);
       const docsContenedor = (docsContData ?? []) as { tipo: string; datos_extraidos: Record<string, unknown> | null }[];
       const cbmTotalCont = (cbmsCont ?? []).reduce((a, c) => a + (c.cbm_asignado ?? 0), 0);
       const cbmProporcion = cbmTotalCont > 0 ? asignacion.cbm_asignado / cbmTotalCont : 1;
+
+      // El seguro se cobra como % del valor FOB de la mercadería, no del volumen —
+      // por eso se prorratea por proporción de FOB en vez de CBM.
+      const fobTotalCont = (fobsCont ?? []).reduce(
+        (a, c) => a + ((c.carpetas as unknown as { fob_total_usd: number } | null)?.fob_total_usd ?? 0),
+        0
+      );
+      const fobProporcion = fobTotalCont > 0 ? carpeta.fob_total_usd / fobTotalCont : cbmProporcion;
+      const esSeguro = (concepto: string) => /seguro/i.test(concepto);
+
       const sufijoContenedor = asignaciones.length > 1 ? ` [contenedor #${numeroCont}]` : "";
 
-      // Factura logística → prorateada por CBM
+      // Factura logística → prorateada por CBM (el seguro, por FOB)
       const factLog = docsContenedor.find(d => d.tipo === "factura_logistica");
       if (factLog?.datos_extraidos) {
         const conceptos = factLog.datos_extraidos.conceptos as { descripcion: string; monto: number; moneda: string }[] | undefined;
         if (conceptos?.length) {
           for (const c of conceptos) {
-            const monto = Number(c.monto ?? 0) * cbmProporcion;
+            const proporcion = esSeguro(c.descripcion) ? fobProporcion : cbmProporcion;
+            const monto = Number(c.monto ?? 0) * proporcion;
             if (monto > 0) {
               costosReales.push({
                 concepto: c.descripcion,
                 monto_usd: monto,
-                fuente: `Factura logística${cbmProporcion < 0.999 ? ` (${(cbmProporcion * 100).toFixed(0)}% del contenedor)` : ""}${sufijoContenedor}`,
+                fuente: `Factura logística${proporcion < 0.999 ? ` (${(proporcion * 100).toFixed(0)}% del contenedor, por ${esSeguro(c.descripcion) ? "FOB" : "CBM"})` : ""}${sufijoContenedor}`,
               });
             }
           }

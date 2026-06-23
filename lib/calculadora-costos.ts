@@ -125,6 +125,7 @@ export interface ResultadoCascada {
   depositoFiscal: number;
   digitalizacionDespacho: number;
   gastosOperativos: number;
+  gastosLocales: number;
   tramitaciones: number;
   honorariosDespachante: number;
   gastosBancarios: number;
@@ -225,6 +226,7 @@ export function calcularCascada(
 
   const digitalizacionDespacho = parametros.digitalizacion_usd || 0;
   const gastosOperativos = parametros.gastos_operativos_usd || 0;
+  const gastosLocales = parametros.gastos_locales_usd || 0;
   const tramitaciones = parametros.tramitaciones_usd || 0;
 
   const honorariosDespachante = Math.max(
@@ -245,6 +247,7 @@ export function calcularCascada(
     depositoFiscal +
     digitalizacionDespacho +
     gastosOperativos +
+    gastosLocales +
     tramitaciones +
     honorariosDespachante +
     gastosBancarios;
@@ -282,6 +285,7 @@ export function calcularCascada(
     depositoFiscal,
     digitalizacionDespacho,
     gastosOperativos,
+    gastosLocales,
     tramitaciones,
     honorariosDespachante,
     gastosBancarios,
@@ -320,6 +324,7 @@ export function costosComoLineas(resultado: ResultadoCascada): LineaCosto[] {
     { concepto: `Depósito fiscal (${resultado.cantContenedores} cont.)`, categoria: "otro", monto_estimado_usd: resultado.depositoFiscal },
     { concepto: "Digitalización de despacho", categoria: "otro", monto_estimado_usd: resultado.digitalizacionDespacho },
     { concepto: "Gastos operativos", categoria: "otro", monto_estimado_usd: resultado.gastosOperativos },
+    { concepto: "Gastos locales", categoria: "otro", monto_estimado_usd: resultado.gastosLocales },
     { concepto: "Tramitaciones", categoria: "otro", monto_estimado_usd: resultado.tramitaciones },
     { concepto: "Honorarios despachante", categoria: "honorarios", monto_estimado_usd: resultado.honorariosDespachante },
     { concepto: "Gastos bancarios", categoria: "bancario", monto_estimado_usd: resultado.gastosBancarios },

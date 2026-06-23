@@ -14,6 +14,7 @@ export interface CrearParametrosInput {
   gastoTerminalUsd: number; // depósito fiscal por contenedor
   digitalizacionUsd: number;
   gastosOperativosUsd: number;
+  gastosLocalesUsd: number;
   tramitacionesUsd: number;
   // Porcentuales
   seguroPct: number;
@@ -47,6 +48,7 @@ export async function crearVersionParametros(input: CrearParametrosInput) {
     gasto_terminal_usd: input.gastoTerminalUsd,
     digitalizacion_usd: input.digitalizacionUsd,
     gastos_operativos_usd: input.gastosOperativosUsd,
+    gastos_locales_usd: input.gastosLocalesUsd,
     tramitaciones_usd: input.tramitacionesUsd,
     seguro_pct: input.seguroPct,
     honorarios_despachante_pct: input.honorariosDespachantePct,
