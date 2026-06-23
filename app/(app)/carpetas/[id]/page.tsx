@@ -183,12 +183,13 @@ export default async function CarpetaDetallePage({ params }: { params: { id: str
               concepto: c.concepto,
               monto_estimado_usd: c.monto_estimado_usd,
               monto_real_usd: c.monto_real_usd ?? null,
+              ncm_codigo: c.ncm_codigo ?? null,
             }))}
           />
         </TabsContent>
 
         <TabsContent value="costos">
-          <CostosTable carpetaId={carpetaTyped.id} costos={costosList} />
+          <CostosTable carpetaId={carpetaTyped.id} costos={costosList} fobTotalUsd={carpetaTyped.fob_total_usd} />
         </TabsContent>
 
         <TabsContent value="timeline">

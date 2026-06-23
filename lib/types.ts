@@ -197,6 +197,7 @@ export interface Costo {
   monto_real_usd: number | null;
   tc_aplicado: number | null;
   notas: string | null;
+  ncm_codigo: string | null;
   created_by: string | null;
   created_at: string;
 }

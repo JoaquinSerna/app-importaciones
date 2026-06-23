@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { Fragment, useMemo, useState, useTransition } from "react";
 import { Loader2, Plus, RefreshCw, X } from "lucide-react";
 
 import {
@@ -43,6 +43,13 @@ interface CostoSimple {
   concepto: string;
   monto_estimado_usd: number;
   monto_real_usd: number | null;
+  ncm_codigo: string | null;
+}
+
+interface DesgloseItem {
+  concepto: string;
+  estimado: number;
+  real: number;
 }
 
 interface Props {
@@ -57,36 +64,64 @@ export function SkusEditor({ carpetaId, skus, ncms, costos }: Props) {
   const [isPending, startTransition] = useTransition();
   const [nuevo, setNuevo] = useState<SkuInput>(vacio());
   const [mostrandoNuevo, setMostrandoNuevo] = useState(false);
+  const [expandidos, setExpandidos] = useState<Set<string>>(new Set());
 
   // Cada línea de costo se prorratea entre SKUs según su base correcta:
   // FOB para impuestos/seguro/honorarios (% del valor de la mercadería),
-  // CBM para flete/THC/etc. (escalan con el volumen).
-  const { estimadoPorSku, realPorSku } = useMemo(() => {
+  // CBM para flete/THC/etc. (escalan con el volumen). Los tributos con
+  // ncm_codigo (ej. derechos anti-dumping) solo afectan a los SKUs con ESE NCM.
+  const { estimadoPorSku, realPorSku, desglosePorSku } = useMemo(() => {
+    const codigoNcmDe = (sku: Sku) => ncms.find((n) => n.id === sku.ncm_id)?.codigo_ncm ?? null;
+
     const estimado = new Map<string, number>();
     const real = new Map<string, number>();
-    skus.forEach((s) => { estimado.set(s.id, 0); real.set(s.id, 0); });
-
-    const items = skus.map((s) => ({
-      id: s.id,
-      cbm: s.cbm ?? 0,
-      fob: (s.cantidad ?? 0) * (s.precio_unitario_fob_usd ?? 0),
-    }));
+    const desglose = new Map<string, DesgloseItem[]>();
+    skus.forEach((s) => { estimado.set(s.id, 0); real.set(s.id, 0); desglose.set(s.id, []); });
 
     for (const costo of costos) {
-      const criterio = criterioPorConcepto(costo.concepto);
-      for (const a of prorratear(costo.monto_estimado_usd, items, criterio)) {
+      const skusObjetivo = costo.ncm_codigo
+        ? skus.filter((s) => codigoNcmDe(s) === costo.ncm_codigo)
+        : skus;
+      if (skusObjetivo.length === 0) continue;
+
+      const items = skusObjetivo.map((s) => ({
+        id: s.id,
+        cbm: s.cbm ?? 0,
+        fob: (s.cantidad ?? 0) * (s.precio_unitario_fob_usd ?? 0),
+      }));
+      const criterio = costo.ncm_codigo ? "fob" : criterioPorConcepto(costo.concepto);
+
+      const asigEst = prorratear(costo.monto_estimado_usd, items, criterio);
+      const asigReal = costo.monto_real_usd != null ? prorratear(costo.monto_real_usd, items, criterio) : [];
+
+      for (const a of asigEst) {
         estimado.set(a.id, (estimado.get(a.id) ?? 0) + a.montoAsignado);
       }
-      if (costo.monto_real_usd != null) {
-        for (const a of prorratear(costo.monto_real_usd, items, criterio)) {
-          real.set(a.id, (real.get(a.id) ?? 0) + a.montoAsignado);
-        }
+      for (const a of asigReal) {
+        real.set(a.id, (real.get(a.id) ?? 0) + a.montoAsignado);
+      }
+
+      const idsConMonto = new Set([...asigEst, ...asigReal].map((a) => a.id));
+      for (const id of Array.from(idsConMonto)) {
+        const est = asigEst.find((a) => a.id === id)?.montoAsignado ?? 0;
+        const rea = asigReal.find((a) => a.id === id)?.montoAsignado ?? 0;
+        if (est <= 0 && rea <= 0) continue;
+        desglose.get(id)?.push({ concepto: costo.concepto, estimado: est, real: rea });
       }
     }
-    return { estimadoPorSku: estimado, realPorSku: real };
-  }, [skus, costos]);
+    return { estimadoPorSku: estimado, realPorSku: real, desglosePorSku: desglose };
+  }, [skus, costos, ncms]);
 
   const hayReal = costos.some((c) => c.monto_real_usd != null);
+
+  function toggleExpandido(skuId: string) {
+    setExpandidos((prev) => {
+      const next = new Set(prev);
+      if (next.has(skuId)) next.delete(skuId);
+      else next.add(skuId);
+      return next;
+    });
+  }
 
   const ncmsDistintos = new Set(skus.map((s) => s.ncm_id).filter(Boolean)).size;
 
@@ -120,6 +155,23 @@ export function SkusEditor({ carpetaId, skus, ncms, costos }: Props) {
       });
       if (resultado.error) {
         toast({ title: "Error actualizando NCM", description: resultado.error, variant: "destructive" });
+      }
+    });
+  }
+
+  function handleCambiarDescripcion(sku: Sku, descripcion: string) {
+    startTransition(async () => {
+      const resultado = await actualizarSku(carpetaId, sku.id, {
+        codigoSku: sku.codigo_sku ?? undefined,
+        descripcion,
+        cantidad: sku.cantidad,
+        precioUnitarioFobUsd: sku.precio_unitario_fob_usd,
+        pesoKg: sku.peso_kg ?? undefined,
+        cbm: sku.cbm ?? undefined,
+        ncmId: sku.ncm_id,
+      });
+      if (resultado.error) {
+        toast({ title: "Error actualizando nombre", description: resultado.error, variant: "destructive" });
       }
     });
   }
@@ -175,7 +227,20 @@ export function SkusEditor({ carpetaId, skus, ncms, costos }: Props) {
           {skus.map((sku) => (
             <TableRow key={sku.id}>
               <TableCell>{sku.codigo_sku ?? "-"}</TableCell>
-              <TableCell>{sku.descripcion ?? "-"}</TableCell>
+              <TableCell>
+                <Input
+                  key={sku.id}
+                  defaultValue={sku.descripcion ?? ""}
+                  placeholder="Nombre del producto"
+                  className="h-8 text-sm min-w-[160px]"
+                  disabled={isPending}
+                  onBlur={(e) => {
+                    if (e.target.value !== (sku.descripcion ?? "")) {
+                      handleCambiarDescripcion(sku, e.target.value);
+                    }
+                  }}
+                />
+              </TableCell>
               <TableCell className="text-right">{sku.cantidad}</TableCell>
               <TableCell className="text-right">{formatUsd(sku.precio_unitario_fob_usd)}</TableCell>
               <TableCell className="text-right">{sku.cbm ?? "-"}</TableCell>
@@ -222,11 +287,12 @@ export function SkusEditor({ carpetaId, skus, ncms, costos }: Props) {
           <Table>
             <TableHeader>
               <TableRow>
+                <TableHead />
                 <TableHead>SKU</TableHead>
                 <TableHead className="text-right">Cantidad</TableHead>
                 <TableHead className="text-right">FOB unit.</TableHead>
-                <TableHead className="text-right">Costos asignados (est.)</TableHead>
-                {hayReal && <TableHead className="text-right">Costos asignados (real)</TableHead>}
+                <TableHead className="text-right">Costo total (est.)</TableHead>
+                {hayReal && <TableHead className="text-right">Costo total (real)</TableHead>}
                 <TableHead className="text-right">Costo unitario (est.)</TableHead>
                 {hayReal && <TableHead className="text-right">Costo unitario (real)</TableHead>}
               </TableRow>
@@ -236,18 +302,64 @@ export function SkusEditor({ carpetaId, skus, ncms, costos }: Props) {
                 const cantidad = sku.cantidad || 1;
                 const asignadoEst = estimadoPorSku.get(sku.id) ?? 0;
                 const asignadoReal = realPorSku.get(sku.id) ?? 0;
-                const unitarioEst = sku.precio_unitario_fob_usd + asignadoEst / cantidad;
-                const unitarioReal = sku.precio_unitario_fob_usd + asignadoReal / cantidad;
+                const fobSku = sku.precio_unitario_fob_usd * cantidad;
+                const totalEst = fobSku + asignadoEst;
+                const totalReal = fobSku + asignadoReal;
+                const unitarioEst = totalEst / cantidad;
+                const unitarioReal = totalReal / cantidad;
+                const desglose = desglosePorSku.get(sku.id) ?? [];
+                const expandido = expandidos.has(sku.id);
                 return (
-                  <TableRow key={sku.id}>
-                    <TableCell>{sku.codigo_sku ?? sku.descripcion ?? "-"}</TableCell>
-                    <TableCell className="text-right">{sku.cantidad}</TableCell>
-                    <TableCell className="text-right">{formatUsd(sku.precio_unitario_fob_usd)}</TableCell>
-                    <TableCell className="text-right">{formatUsd(asignadoEst)}</TableCell>
-                    {hayReal && <TableCell className="text-right">{formatUsd(asignadoReal)}</TableCell>}
-                    <TableCell className="text-right font-medium">{formatUsd(unitarioEst)}</TableCell>
-                    {hayReal && <TableCell className="text-right font-medium">{formatUsd(unitarioReal)}</TableCell>}
-                  </TableRow>
+                  <Fragment key={sku.id}>
+                    <TableRow>
+                      <TableCell className="w-8">
+                        {desglose.length > 0 && (
+                          <Button size="sm" variant="ghost" className="h-6 w-6 p-0" onClick={() => toggleExpandido(sku.id)}>
+                            {expandido ? "−" : "+"}
+                          </Button>
+                        )}
+                      </TableCell>
+                      <TableCell>{sku.codigo_sku ?? sku.descripcion ?? "-"}</TableCell>
+                      <TableCell className="text-right">{sku.cantidad}</TableCell>
+                      <TableCell className="text-right">{formatUsd(sku.precio_unitario_fob_usd)}</TableCell>
+                      <TableCell className="text-right font-medium">{formatUsd(totalEst)}</TableCell>
+                      {hayReal && <TableCell className="text-right font-medium">{formatUsd(totalReal)}</TableCell>}
+                      <TableCell className="text-right font-medium">{formatUsd(unitarioEst)}</TableCell>
+                      {hayReal && <TableCell className="text-right font-medium">{formatUsd(unitarioReal)}</TableCell>}
+                    </TableRow>
+                    {expandido && desglose.length > 0 && (
+                      <TableRow className="bg-muted/30">
+                        <TableCell />
+                        <TableCell colSpan={hayReal ? 6 : 4} className="py-2">
+                          <div className="text-xs space-y-1">
+                            <div className="flex justify-between font-medium text-muted-foreground">
+                              <span>Concepto</span>
+                              <span className="flex gap-6">
+                                <span className="w-20 text-right">Estimado</span>
+                                {hayReal && <span className="w-20 text-right">Real</span>}
+                              </span>
+                            </div>
+                            <div className="flex justify-between text-muted-foreground">
+                              <span>FOB</span>
+                              <span className="flex gap-6">
+                                <span className="w-20 text-right">{formatUsd(fobSku)}</span>
+                                {hayReal && <span className="w-20 text-right">{formatUsd(fobSku)}</span>}
+                              </span>
+                            </div>
+                            {desglose.map((d, i) => (
+                              <div key={i} className="flex justify-between">
+                                <span>{d.concepto}</span>
+                                <span className="flex gap-6">
+                                  <span className="w-20 text-right">{d.estimado > 0 ? formatUsd(d.estimado) : "—"}</span>
+                                  {hayReal && <span className="w-20 text-right">{d.real > 0 ? formatUsd(d.real) : "—"}</span>}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    )}
+                  </Fragment>
                 );
               })}
             </TableBody>

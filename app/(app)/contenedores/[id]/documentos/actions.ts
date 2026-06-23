@@ -164,6 +164,104 @@ export async function eliminarDocumentoContenedor(contenedorId: string, document
   revalidatePath(`/contenedores/${contenedorId}`);
 }
 
+interface ItemPorNcmCrudo {
+  ncm: string;
+  fob_usd?: number;
+  derechos_importacion?: number;
+  tasa_estadistica?: number;
+  iva?: number;
+  iva_adicional?: number;
+  ganancias?: number;
+  otros_tributos?: { concepto: string; monto: number }[];
+}
+
+interface ItemPorNcmConfirmado {
+  ncm: string;
+  otros_tributos: { concepto: string; monto_usd: number }[];
+}
+
+// Los tributos específicos de un NCM (anti-dumping, salvaguardias, etc.) no
+// pasan por la confirmación de moneda ítem por ítem — usamos la misma moneda
+// que el usuario eligió para "Derechos de importación" (el tributo general
+// más comparable), ya que en la práctica todo el despacho usa una sola moneda.
+function convertirItemsPorNcm(
+  itemsPorNcm: ItemPorNcmCrudo[],
+  moneda: "USD" | "ARS",
+  tipoCambio: number | null
+): ItemPorNcmConfirmado[] {
+  const factor = moneda === "USD" ? 1 : 1 / (tipoCambio || 1);
+  return itemsPorNcm.map((item) => ({
+    ncm: item.ncm,
+    otros_tributos: (item.otros_tributos ?? []).map((o) => ({
+      concepto: o.concepto,
+      monto_usd: (o.monto ?? 0) * factor,
+    })),
+  }));
+}
+
+// Distribuye los tributos específicos de un NCM (ej. anti-dumping) solo entre
+// las carpetas/SKUs que tienen ESE NCM, prorrateado por FOB entre ellos —
+// nunca entre todos los SKUs del contenedor.
+async function sincronizarTributosPorNcm(contenedorId: string, itemsPorNcm: ItemPorNcmConfirmado[]) {
+  const conTributos = itemsPorNcm.filter((i) => i.otros_tributos.length > 0);
+  if (conTributos.length === 0) return;
+
+  const supabase = createClient();
+  const { data: asignaciones } = await supabase
+    .from("carpeta_contenedores")
+    .select("carpeta_id")
+    .eq("contenedor_id", contenedorId);
+  const carpetaIds = (asignaciones ?? []).map((a) => a.carpeta_id);
+  if (carpetaIds.length === 0) return;
+
+  const { data: skus } = await supabase
+    .from("skus")
+    .select("carpeta_id, cantidad, precio_unitario_fob_usd, ncm_aranceles(codigo_ncm)")
+    .in("carpeta_id", carpetaIds)
+    .not("ncm_id", "is", null);
+
+  for (const item of conTributos) {
+    const matching = (skus ?? []).filter(
+      (s) => (s.ncm_aranceles as unknown as { codigo_ncm: string } | null)?.codigo_ncm === item.ncm
+    );
+    if (matching.length === 0) continue;
+
+    const fobPorCarpeta = new Map<string, number>();
+    for (const s of matching) {
+      const fob = (s.cantidad ?? 0) * (s.precio_unitario_fob_usd ?? 0);
+      fobPorCarpeta.set(s.carpeta_id, (fobPorCarpeta.get(s.carpeta_id) ?? 0) + fob);
+    }
+    const fobTotalNcm = Array.from(fobPorCarpeta.values()).reduce((a, v) => a + v, 0);
+
+    for (const otro of item.otros_tributos) {
+      if (otro.monto_usd <= 0) continue;
+      for (const [carpetaId, fobCarpetaNcm] of Array.from(fobPorCarpeta.entries())) {
+        const proporcion = fobTotalNcm > 0 ? fobCarpetaNcm / fobTotalNcm : 1 / fobPorCarpeta.size;
+        const monto = otro.monto_usd * proporcion;
+
+        await supabase
+          .from("costos")
+          .delete()
+          .eq("carpeta_id", carpetaId)
+          .eq("ncm_codigo", item.ncm)
+          .eq("concepto", otro.concepto);
+        await supabase.from("costos").insert({
+          carpeta_id: carpetaId,
+          nivel: "carpeta",
+          concepto: otro.concepto,
+          categoria: "otro",
+          origen: "real",
+          monto_estimado_usd: 0,
+          monto_real_usd: monto,
+          ncm_codigo: item.ncm,
+          notas: `Tributo específico del NCM ${item.ncm} (despacho de aduana)`,
+        });
+        revalidatePath(`/carpetas/${carpetaId}`);
+      }
+    }
+  }
+}
+
 export async function confirmarMonedasDespacho(
   documentoId: string,
   contenedorId: string,
@@ -191,10 +289,16 @@ export async function confirmarMonedasDespacho(
     .single();
   const datosPrevios = (doc?.datos_extraidos ?? {}) as Record<string, unknown>;
 
+  const itemsPorNcmCrudo = (datosPrevios.items_por_ncm ?? []) as ItemPorNcmCrudo[];
+  const itemDerecho = items.find((i) => /derecho/i.test(i.concepto) && !/anti-?dumping/i.test(i.concepto));
+  const monedaDominante = itemDerecho?.moneda ?? items[0]?.moneda ?? "USD";
+  const itemsPorNcmConfirmado = convertirItemsPorNcm(itemsPorNcmCrudo, monedaDominante, tipoCambio);
+
   const nuevosDatos = {
     ...datosPrevios,
     tipo_cambio: tipoCambio,
     items_costos_confirmados: itemsConfirmados,
+    items_por_ncm_confirmado: itemsPorNcmConfirmado,
     monedas_confirmadas: true,
   };
 
@@ -205,6 +309,7 @@ export async function confirmarMonedasDespacho(
   if (error) throw new Error(error.message);
 
   await sincronizarCostosRealesDeDespacho(contenedorId, itemsConfirmados);
+  await sincronizarTributosPorNcm(contenedorId, itemsPorNcmConfirmado);
   await autoAnalizarCarpetasDelContenedor(contenedorId);
 
   revalidatePath(`/contenedores/${contenedorId}`);

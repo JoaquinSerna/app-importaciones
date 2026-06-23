@@ -18,9 +18,19 @@ function varianzaPct(estimado: number, real: number | null): number | null {
   return ((real - estimado) / estimado) * 100;
 }
 
-export function CostosTable({ carpetaId, costos }: { carpetaId: string; costos: Costo[] }) {
-  const totalEstimado = costos.reduce((acc, c) => acc + c.monto_estimado_usd, 0);
-  const totalReal = costos.reduce((acc, c) => acc + (c.monto_real_usd ?? 0), 0);
+export function CostosTable({
+  carpetaId,
+  costos,
+  fobTotalUsd,
+}: {
+  carpetaId: string;
+  costos: Costo[];
+  fobTotalUsd: number;
+}) {
+  const totalCostosEstimado = costos.reduce((acc, c) => acc + c.monto_estimado_usd, 0);
+  const totalCostosReal = costos.reduce((acc, c) => acc + (c.monto_real_usd ?? 0), 0);
+  const totalEstimado = fobTotalUsd + totalCostosEstimado;
+  const totalReal = fobTotalUsd + totalCostosReal;
 
   return (
     <div className="space-y-4">
@@ -39,6 +49,14 @@ export function CostosTable({ carpetaId, costos }: { carpetaId: string; costos: 
           </TableRow>
         </TableHeader>
         <TableBody>
+          <TableRow className="bg-muted/30">
+            <TableCell className="font-medium">FOB</TableCell>
+            <TableCell className="capitalize">mercadería</TableCell>
+            <TableCell>-</TableCell>
+            <TableCell className="text-right font-medium">{formatUsd(fobTotalUsd)}</TableCell>
+            <TableCell className="text-right font-medium">{formatUsd(fobTotalUsd)}</TableCell>
+            <TableCell className="text-right">-</TableCell>
+          </TableRow>
           {costos.map((costo) => {
             const varianza = varianzaPct(costo.monto_estimado_usd, costo.monto_real_usd ?? null);
             return (
@@ -72,8 +90,8 @@ export function CostosTable({ carpetaId, costos }: { carpetaId: string; costos: 
         </TableBody>
       </Table>
       <div className="flex justify-end gap-6 text-sm font-medium">
-        <span>Total estimado: {formatUsd(totalEstimado)}</span>
-        <span>Total real: {formatUsd(totalReal)}</span>
+        <span>Total (FOB + costos) estimado: {formatUsd(totalEstimado)}</span>
+        <span>Total (FOB + costos) real: {formatUsd(totalReal)}</span>
       </div>
     </div>
   );
