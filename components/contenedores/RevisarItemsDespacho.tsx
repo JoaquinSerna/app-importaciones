@@ -12,17 +12,30 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/components/ui/use-toast";
 
+interface NcmPorCarpeta {
+  ncmCodigo: string;
+  carpetaId: string;
+  carpetaLabel: string;
+}
+
 interface Props {
   documentoId: string;
   contenedorId: string;
   itemsIniciales: ItemDespachoEditable[];
+  ncmPorCarpeta: NcmPorCarpeta[];
 }
 
 function fmt(n: number) {
   return n.toLocaleString("es-AR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
-export function RevisarItemsDespacho({ documentoId, contenedorId, itemsIniciales }: Props) {
+// Compara NCM ignorando puntos/espacios — el despacho a veces los escribe
+// distinto que como están guardados en NCMs (ej: "8426.11.00" vs "84261100").
+function normalizarNcm(ncm: string) {
+  return ncm.replace(/[^0-9]/g, "");
+}
+
+export function RevisarItemsDespacho({ documentoId, contenedorId, itemsIniciales, ncmPorCarpeta }: Props) {
   const { toast } = useToast();
   const [isPending, startTransition] = useTransition();
   const [items, setItems] = useState<ItemDespachoEditable[]>(
@@ -72,6 +85,12 @@ export function RevisarItemsDespacho({ documentoId, contenedorId, itemsIniciales
     setItems((prev) => prev.filter((_, i) => i !== idx));
   }
 
+  function carpetaParaNcm(ncm: string): NcmPorCarpeta | null {
+    const norm = normalizarNcm(ncm).slice(0, 8);
+    if (!norm) return null;
+    return ncmPorCarpeta.find((n) => normalizarNcm(n.ncmCodigo).slice(0, 8) === norm) ?? null;
+  }
+
   function handleConfirmar() {
     if (items.some((it) => !it.ncm.trim())) {
       toast({ title: "Falta el NCM", description: "Todos los ítems necesitan un NCM.", variant: "destructive" });
@@ -97,7 +116,9 @@ export function RevisarItemsDespacho({ documentoId, contenedorId, itemsIniciales
         </p>
       </CardHeader>
       <CardContent className="space-y-4">
-        {items.map((it, idx) => (
+        {items.map((it, idx) => {
+          const carpeta = carpetaParaNcm(it.ncm);
+          return (
           <div key={idx} className="rounded-lg border p-3 space-y-2">
             <div className="flex items-center gap-2">
               <span className="text-xs text-muted-foreground shrink-0">Ítem {it.item} · NCM</span>
@@ -108,6 +129,17 @@ export function RevisarItemsDespacho({ documentoId, contenedorId, itemsIniciales
                 className="h-8 w-40 text-sm"
                 disabled={isPending}
               />
+              {it.ncm.trim() && (
+                carpeta ? (
+                  <span className="text-xs rounded-full bg-emerald-100 text-emerald-700 px-2 py-0.5">
+                    {carpeta.carpetaLabel}
+                  </span>
+                ) : (
+                  <span className="text-xs rounded-full bg-amber-100 text-amber-700 px-2 py-0.5">
+                    Sin carpeta con este NCM
+                  </span>
+                )
+              )}
               <div className="flex-1" />
               <Button size="sm" variant="ghost" onClick={() => quitarItem(idx)} disabled={isPending} title="Quitar ítem">
                 <X className="h-3.5 w-3.5 text-destructive" />
@@ -142,7 +174,8 @@ export function RevisarItemsDespacho({ documentoId, contenedorId, itemsIniciales
               Agregar concepto a este ítem
             </Button>
           </div>
-        ))}
+          );
+        })}
 
         <Button size="sm" variant="outline" onClick={agregarItem} disabled={isPending}>
           <Plus className="h-3.5 w-3.5 mr-1" />

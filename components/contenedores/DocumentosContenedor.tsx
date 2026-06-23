@@ -253,12 +253,19 @@ function DocumentoSlot({
   );
 }
 
+interface NcmPorCarpeta {
+  ncmCodigo: string;
+  carpetaId: string;
+  carpetaLabel: string;
+}
+
 interface DocumentosContenedorProps {
   contenedorId: string;
   documentos: Documento[];
+  ncmPorCarpeta: NcmPorCarpeta[];
 }
 
-export function DocumentosContenedor({ contenedorId, documentos }: DocumentosContenedorProps) {
+export function DocumentosContenedor({ contenedorId, documentos, ncmPorCarpeta }: DocumentosContenedorProps) {
   const byTipo = Object.fromEntries(documentos.map((d) => [d.tipo, d])) as Partial<
     Record<TipoDocumento, Documento>
   >;
@@ -306,6 +313,7 @@ export function DocumentosContenedor({ contenedorId, documentos }: DocumentosCon
             ncm: it.ncm ?? "",
             conceptos: it.conceptos ?? [],
           }))}
+          ncmPorCarpeta={ncmPorCarpeta}
         />
       )}
 

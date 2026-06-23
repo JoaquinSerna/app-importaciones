@@ -58,6 +58,26 @@ export default async function ContenedorDetallePage({ params }: { params: { id: 
       ...(a.carpetas as unknown as CarpetaConProveedor),
       cbm_asignado_aqui: a.cbm_asignado as number,
     }));
+
+  // NCM de los SKUs de cada carpeta asignada — para mostrar, en la revisión
+  // del despacho, a qué carpeta corresponde cada ítem (por su NCM).
+  const carpetaIds = carpetasList.map((c) => c.id);
+  const { data: skusContenedor } = carpetaIds.length > 0
+    ? await supabase
+        .from("skus")
+        .select("carpeta_id, ncm_aranceles(codigo_ncm)")
+        .in("carpeta_id", carpetaIds)
+        .not("ncm_id", "is", null)
+    : { data: [] };
+
+  const numeroPorCarpetaId = new Map(carpetasList.map((c) => [c.id, c.titulo || c.numero_carpeta]));
+  const ncmPorCarpeta = (skusContenedor ?? [])
+    .map((s) => ({
+      ncmCodigo: (s.ncm_aranceles as unknown as { codigo_ncm: string } | null)?.codigo_ncm ?? null,
+      carpetaId: s.carpeta_id,
+      carpetaLabel: numeroPorCarpetaId.get(s.carpeta_id) ?? "—",
+    }))
+    .filter((s): s is { ncmCodigo: string; carpetaId: string; carpetaLabel: string } => !!s.ncmCodigo);
   const costosList = (costosContenedor ?? []) as Costo[];
   const criteriosList = (criterios ?? []) as CriterioProrrateo[];
 
@@ -240,7 +260,7 @@ export default async function ContenedorDetallePage({ params }: { params: { id: 
         </TabsContent>
 
         <TabsContent value="documentos">
-          <DocumentosContenedor contenedorId={params.id} documentos={documentosTyped} />
+          <DocumentosContenedor contenedorId={params.id} documentos={documentosTyped} ncmPorCarpeta={ncmPorCarpeta} />
         </TabsContent>
       </Tabs>
     </div>
