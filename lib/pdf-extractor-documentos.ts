@@ -185,7 +185,7 @@ IMPORTANTE sobre montos: NO asumas ni asignes la moneda (USD o ARS) de cada cost
 
 "valores_generales" son montos que aparecen UNA SOLA VEZ en el despacho (no por ítem) — normalmente en un resumen o en los datos generales: FOB total, Flete internacional total, Seguro total, CIF/Valor en aduana total, y tributos especiales (anti-dumping, salvaguardias, aranceles especiales) si el despacho los expresa como un total único. Extraé el número tal cual figura, no inventes ni calcules nada.
 
-"items" es la lista de TODOS los ítems/posiciones NCM del despacho (puede haber muchos, en varias páginas). Para cada ítem extraé SOLO los montos de la columna "DEL ITEM" de Derechos de importación, Tasa estadística, IVA e IVA adicional/Anticipo de ganancias si aparecen — estos son los que varían ítem por ítem y NO tenés que sumarlos vos: el código de la aplicación los suma después automáticamente. Es más importante que cada número individual sea correcto que tratar de calcular un total.
+"items" es la lista de TODOS los ítems/posiciones NCM del despacho (puede haber muchos, en varias páginas). Cada ítem tiene una tabla de "Liquidación" o "Conceptos" con varias filas (Porc. / P-G-C / Importe / Concepto) — para cada ítem extraé TODAS esas filas tal como aparecen, usando el monto de la columna "DEL ITEM" (Importe), SIN omitir ninguna aunque no reconozcas el concepto. Copiá el nombre del concepto EXACTAMENTE como figura impreso (ej: "DERECHOS IMPORTACION", "I.V.A.", "TASA ESTAD MONT MAX", "DER. ANTIDUMPING", "ARANCEL SIM IMPO"), código incluido si lo tiene (ej: "(010) DERECHOS IMPORTACION"). NO tenés que sumar nada vos ni reconocer qué es cada concepto: el código de la aplicación se encarga de sumarlos y agruparlos después. Es más importante que cada fila y cada número individual sea correcto que tratar de interpretar o calcular un total.
 - NO uses la columna "TOTAL" (acumulado/resumen que aparece en la primera hoja o se repite por página) para nada — ni la copies en "items" ni la sumes en "valores_generales".
 - Si el despacho tiene una sola página/ítem, "items" tiene un solo elemento.
 
@@ -201,24 +201,19 @@ IMPORTANTE sobre montos: NO asumas ni asignes la moneda (USD o ARS) de cada cost
     { "concepto": "FOB", "monto": número },
     { "concepto": "Flete internacional", "monto": número },
     { "concepto": "Seguro", "monto": número },
-    { "concepto": "CIF", "monto": número },
-    { "concepto": "Derechos anti-dumping", "monto": número, "_comentario": "solo si el despacho lo muestra como un total único; si varía por ítem, ponelo en 'items' en cambio" }
+    { "concepto": "CIF", "monto": número }
   ],
   "items": [
     {
       "item": número de ítem,
       "ncm": "código NCM de 8 dígitos",
-      "derechos_importacion": número,
-      "tasa_estadistica": número,
-      "iva": número,
-      "iva_adicional": número,
-      "ganancias": número,
-      "arancel_sim": número,
-      "anti_dumping": número
+      "conceptos": [
+        { "concepto": "nombre exacto tal como figura impreso en la fila de liquidación de este ítem", "monto": número }
+      ]
     }
   ]
 }
-Omití cualquier campo (en "valores_generales" o dentro de un ítem) que no aparezca en el documento — no inventes valores en cero. Solo devolvé el JSON, sin texto adicional.`,
+Omití cualquier valor (en "valores_generales" o dentro de un ítem) que no aparezca en el documento — no inventes valores en cero. Solo devolvé el JSON, sin texto adicional.`,
 };
 
 export async function extraerDatosDocumento(
@@ -283,36 +278,49 @@ export async function extraerDatosDocumento(
   return datos;
 }
 
+// Normaliza el nombre tal como lo escribe el despacho (con códigos, puntos,
+// abreviaturas, etc.) a un nombre canónico, para poder agrupar y sumar entre
+// ítems aunque la IA copie el texto con variaciones menores. Si no reconoce
+// el concepto, lo deja tal cual — aparece como "costo nuevo" en Sección 3.
+function normalizarConceptoDespacho(raw: string): string {
+  const compacto = raw
+    .toLowerCase()
+    .replace(/[^a-zà-ÿ]/g, ""); // solo letras (con tildes), sin espacios/puntos/números/códigos
+
+  if (compacto.includes("antidump")) return "Derechos anti-dumping";
+  if (compacto.includes("salvaguardia")) return "Salvaguardia";
+  if (compacto.includes("tasaestad") && compacto.includes("max")) return "Tasa estadística monto máximo";
+  if (compacto.includes("tasaestad")) return "Tasa estadística";
+  if (compacto.includes("ivaadic")) return "IVA adicional";
+  if (compacto === "iva" || (compacto.includes("iva") && compacto.length <= 5)) return "IVA";
+  if (compacto.includes("ganancia")) return "Anticipo de ganancias";
+  if (compacto.includes("arancel")) return "Arancel SIM Impo";
+  if (compacto.includes("iibb") || compacto.includes("ingresosbrutos")) return "IIBB";
+  if (compacto.includes("derecho")) return "Derechos de importación";
+  return raw.trim();
+}
+
 // Suma en código (no en la IA) los montos por ítem del despacho — la IA
-// extrae cada número individual, que es confiable; pedirle que sume 10-20
+// extrae cada fila individual, que es confiable; pedirle que sume 10-20
 // ítems mentalmente no lo es, y daba un total distinto en cada corrida.
 function construirItemsCostosDespacho(datos: Record<string, unknown>): { concepto: string; monto: number }[] {
   const valoresGenerales = (datos.valores_generales ?? []) as { concepto: string; monto: number }[];
-  const items = (datos.items ?? []) as Record<string, number | string | undefined>[];
+  const items = (datos.items ?? []) as { conceptos?: { concepto: string; monto: number }[] }[];
 
-  const sumarCampo = (campo: string) =>
-    items.reduce((acc, item) => acc + (Number(item[campo]) || 0), 0);
+  const sumas = new Map<string, number>();
+  for (const item of items) {
+    for (const c of item.conceptos ?? []) {
+      const monto = Number(c.monto) || 0;
+      if (monto === 0) continue;
+      const concepto = normalizarConceptoDespacho(c.concepto ?? "");
+      sumas.set(concepto, (sumas.get(concepto) ?? 0) + monto);
+    }
+  }
 
   const resultado = [...valoresGenerales];
-
-  const CAMPOS_POR_ITEM: { campo: string; concepto: string }[] = [
-    { campo: "derechos_importacion", concepto: "Derechos de importación" },
-    { campo: "tasa_estadistica", concepto: "Tasa estadística" },
-    { campo: "iva", concepto: "IVA" },
-    { campo: "iva_adicional", concepto: "IVA adicional" },
-    { campo: "ganancias", concepto: "Anticipo de ganancias" },
-    { campo: "arancel_sim", concepto: "Arancel SIM Impo" },
-    { campo: "anti_dumping", concepto: "Derechos anti-dumping" },
-  ];
-
-  for (const { campo, concepto } of CAMPOS_POR_ITEM) {
-    const total = sumarCampo(campo);
-    if (total > 0) {
-      // Si "valores_generales" ya traía este concepto (caso anti-dumping
-      // como total único), no lo dupliques sumando también por ítem.
-      const yaExiste = resultado.some((r) => r.concepto === concepto);
-      if (!yaExiste) resultado.push({ concepto, monto: total });
-    }
+  for (const [concepto, monto] of Array.from(sumas.entries())) {
+    const yaExiste = resultado.some((r) => r.concepto === concepto);
+    if (!yaExiste) resultado.push({ concepto, monto });
   }
 
   return resultado;
