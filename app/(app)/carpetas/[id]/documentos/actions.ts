@@ -54,11 +54,15 @@ export async function subirYExtraerLiquidacion(
 }
 
 // Cuando se sube la Proforma Invoice (o el Packing List si no hay proforma con
-// items), copiamos el nombre de cada producto a los SKUs ya creados — así el
-// usuario no tiene que tipear el nombre, viene solo del documento.
-// Solo pisa la descripción de SKUs que todavía no tienen un nombre real
-// (vacíos o que quedaron con el código de NCM puesto automáticamente al crear
-// la carpeta), y solo cuando la cantidad de items coincide 1 a 1 con los SKUs.
+// items), copiamos el nombre Y LA CANTIDAD real de cada producto a los SKUs ya
+// creados — así el usuario no tiene que tipear nada y el costo por unidad
+// divide por la cantidad real, no por el "1" que se pone como placeholder al
+// crear la carpeta. El precio unitario FOB se recalcula (monto del ítem /
+// cantidad del ítem) para que sea el precio por unidad real, no la suma total
+// que se cargó como "precio unitario" cuando el SKU representaba todo un NCM.
+// Solo pisa SKUs que todavía no tienen un nombre real (vacíos o que quedaron
+// con el código de NCM puesto automáticamente), y solo si la cantidad de
+// items coincide 1 a 1 con los SKUs.
 async function sincronizarDescripcionesDeUnDocumento(
   supabase: ReturnType<typeof createClient>,
   carpetaId: string,
@@ -75,7 +79,12 @@ async function sincronizarDescripcionesDeUnDocumento(
     .limit(1)
     .maybeSingle();
 
-  const items = (doc?.datos_extraidos?.items ?? []) as { descripcion?: string }[];
+  const items = (doc?.datos_extraidos?.items ?? []) as {
+    descripcion?: string;
+    cantidad?: number;
+    precio_unitario?: number;
+    total?: number;
+  }[];
   if (items.length === 0 || items.length !== skus.length) {
     return { actualizados: 0, itemsEncontrados: items.length };
   }
@@ -83,14 +92,23 @@ async function sincronizarDescripcionesDeUnDocumento(
   let actualizados = 0;
   for (let i = 0; i < skus.length; i++) {
     const sku = skus[i];
-    const descripcionNueva = items[i]?.descripcion?.trim();
+    const item = items[i];
+    const descripcionNueva = item?.descripcion?.trim();
     if (!descripcionNueva) continue;
 
     const codigoNcm = sku.ncm_aranceles?.codigo_ncm ?? null;
     const esPlaceholder = !sku.descripcion || sku.descripcion === codigoNcm;
     if (!esPlaceholder) continue;
 
-    await supabase.from("skus").update({ descripcion: descripcionNueva }).eq("id", sku.id);
+    const cantidad = item.cantidad && item.cantidad > 0 ? item.cantidad : undefined;
+    const montoTotal = item.total ?? (cantidad ? cantidad * (item.precio_unitario ?? 0) : undefined);
+    const update: Record<string, unknown> = { descripcion: descripcionNueva };
+    if (cantidad && montoTotal) {
+      update.cantidad = cantidad;
+      update.precio_unitario_fob_usd = montoTotal / cantidad;
+    }
+
+    await supabase.from("skus").update(update).eq("id", sku.id);
     actualizados++;
   }
   return { actualizados, itemsEncontrados: items.length };
@@ -155,6 +173,7 @@ async function agruparDescripcionesConIA(
     index: i,
     descripcion: it.descripcion ?? `Item ${i + 1}`,
     monto: it.total ?? (it.cantidad ?? 0) * (it.precio_unitario ?? 0),
+    cantidad: it.cantidad ?? 1,
   }));
 
   const skusInfo = skus.map((s, i) => ({
@@ -182,7 +201,11 @@ ${itemsConMonto.map(it => `- Item ${it.index}: "${it.descripcion}" — USD ${it.
 Respondé SOLO con JSON válido, sin texto adicional:
 {
   "asignaciones": [
-    { "skuIndex": número, "descripcion": "nombre combinado de los ítems asignados a este SKU, ej: 'Producto A + Producto B' si hay más de uno" }
+    {
+      "skuIndex": número,
+      "descripcion": "nombre combinado de los ítems asignados a este SKU, ej: 'Producto A + Producto B' si hay más de uno",
+      "itemIndices": [índices de los ítems que asignaste a este SKU]
+    }
   ]
 }`,
     }],
@@ -192,7 +215,9 @@ Respondé SOLO con JSON válido, sin texto adicional:
   const jsonMatch = text.match(/\{[\s\S]*\}/);
   if (!jsonMatch) return 0;
 
-  const resultado = JSON.parse(jsonMatch[0]) as { asignaciones: { skuIndex: number; descripcion: string }[] };
+  const resultado = JSON.parse(jsonMatch[0]) as {
+    asignaciones: { skuIndex: number; descripcion: string; itemIndices?: number[] }[];
+  };
 
   let actualizados = 0;
   for (const asignacion of resultado.asignaciones) {
@@ -202,7 +227,20 @@ Respondé SOLO con JSON válido, sin texto adicional:
     const esPlaceholder = !sku.descripcion || sku.descripcion === codigoNcm;
     if (!esPlaceholder || !asignacion.descripcion?.trim()) continue;
 
-    await supabase.from("skus").update({ descripcion: asignacion.descripcion.trim() }).eq("id", sku.id);
+    const update: Record<string, unknown> = { descripcion: asignacion.descripcion.trim() };
+    const itemsAsignados = (asignacion.itemIndices ?? [])
+      .map((i) => itemsConMonto[i])
+      .filter((it): it is (typeof itemsConMonto)[number] => !!it);
+    if (itemsAsignados.length > 0) {
+      const cantidadTotal = itemsAsignados.reduce((a, it) => a + it.cantidad, 0);
+      const montoTotal = itemsAsignados.reduce((a, it) => a + it.monto, 0);
+      if (cantidadTotal > 0 && montoTotal > 0) {
+        update.cantidad = cantidadTotal;
+        update.precio_unitario_fob_usd = montoTotal / cantidadTotal;
+      }
+    }
+
+    await supabase.from("skus").update(update).eq("id", sku.id);
     actualizados++;
   }
   return actualizados;
