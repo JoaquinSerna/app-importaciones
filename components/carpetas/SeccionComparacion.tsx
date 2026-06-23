@@ -59,6 +59,7 @@ interface ComparacionGuardada {
   monto_simulado_usd: number | null;
   fuente: string;
   es_nuevo: boolean;
+  confirmado: boolean;
 }
 
 interface Props {
@@ -69,14 +70,20 @@ interface Props {
 export function SeccionComparacion({ carpetaId, comparacionGuardada }: Props) {
   const { toast } = useToast();
   const [isPending, startTransition] = useTransition();
+  // confirmado=true (alta confianza, auto-sincronizado a Costos) → confidence 1.
+  // confirmado=false (dudoso, quedó pendiente de revisión) → confidence 0.
   const [items, setItems] = useState<ItemPropuesto[] | null>(
     comparacionGuardada.length > 0
-      ? comparacionGuardada.map(c => ({ ...c, confidence: 1 }))
+      ? comparacionGuardada.map(c => ({ ...c, confidence: c.confirmado ? 1 : 0 }))
       : null
   );
   const [advertencias, setAdvertencias] = useState<string[]>([]);
   const [fase, setFase] = useState<"idle" | "review" | "done">(
-    comparacionGuardada.length > 0 ? "done" : "idle"
+    comparacionGuardada.length === 0
+      ? "idle"
+      : comparacionGuardada.every((c) => c.confirmado)
+        ? "done"
+        : "review"
   );
 
   function handleAnalizar() {
@@ -149,7 +156,7 @@ export function SeccionComparacion({ carpetaId, comparacionGuardada }: Props) {
           <CardContent className="py-10 flex flex-col items-center gap-3 text-center">
             <Sparkles className="h-8 w-8 text-muted-foreground" />
             <p className="text-sm text-muted-foreground max-w-sm">
-              Una vez cargados los documentos (Proforma Invoice en la carpeta + SAF, facturas y despacho en el contenedor), analizá los costos reales vs. la simulación.
+              Esto se analiza solo cada vez que subís un documento (Proforma Invoice en la carpeta, o facturas/despacho en el contenedor). Si todavía no hay nada acá, faltan documentos — o podés forzar un análisis manual.
             </p>
             <Button onClick={handleAnalizar} disabled={isPending}>
               {isPending ? <><Loader2 className="h-4 w-4 animate-spin mr-2" />Analizando con IA…</> : <><Sparkles className="h-4 w-4 mr-2" />Analizar costos reales</>}

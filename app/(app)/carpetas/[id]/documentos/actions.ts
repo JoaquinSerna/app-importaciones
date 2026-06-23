@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 
+import { autoAnalizarCarpeta } from "@/app/(app)/carpetas/[id]/analizar-costos/actions";
 import { extraerLiquidacionDesdePdf } from "@/lib/pdf-extractor";
 import { extraerDatosDocumento } from "@/lib/pdf-extractor-documentos";
 import { createClient } from "@/lib/supabase/server";
@@ -110,6 +111,9 @@ export async function subirDocumento(
         monto_saldo_usd: (datos.monto as number) ?? null,
       }).eq("id", carpetaId);
     }
+
+    // Re-analizar costos reales automáticamente con el nuevo documento (best-effort).
+    await autoAnalizarCarpeta(carpetaId);
 
     revalidatePath(`/carpetas/${carpetaId}`);
     return { ...doc, estado: "extraido", datos_extraidos: datos } as Documento;

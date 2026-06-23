@@ -2,9 +2,23 @@
 
 import { revalidatePath } from "next/cache";
 
+import { autoAnalizarCarpeta } from "@/app/(app)/carpetas/[id]/analizar-costos/actions";
 import { extraerDatosDocumento } from "@/lib/pdf-extractor-documentos";
 import { createClient } from "@/lib/supabase/server";
 import type { Documento, TipoDocumento } from "@/lib/types";
+
+// Re-corre el análisis automático de Sección 3 para todas las carpetas
+// asignadas a este contenedor (un documento del contenedor puede afectar a varias).
+async function autoAnalizarCarpetasDelContenedor(contenedorId: string) {
+  const supabase = createClient();
+  const { data: asignaciones } = await supabase
+    .from("carpeta_contenedores")
+    .select("carpeta_id")
+    .eq("contenedor_id", contenedorId);
+  for (const a of asignaciones ?? []) {
+    await autoAnalizarCarpeta(a.carpeta_id);
+  }
+}
 
 const BUCKET_DOCUMENTOS = "documentos";
 
@@ -125,6 +139,8 @@ export async function subirDocumentoContenedor(
       .update({ estado: "extraido", datos_extraidos: datos })
       .eq("id", doc.id);
 
+    await autoAnalizarCarpetasDelContenedor(contenedorId);
+
     revalidatePath(`/contenedores/${contenedorId}`);
     return { ...doc, estado: "extraido", datos_extraidos: datos } as Documento;
   } catch {
@@ -181,6 +197,7 @@ export async function confirmarMonedasDespacho(
   if (error) throw new Error(error.message);
 
   await sincronizarCostosRealesDeDespacho(contenedorId, itemsConfirmados);
+  await autoAnalizarCarpetasDelContenedor(contenedorId);
 
   revalidatePath(`/contenedores/${contenedorId}`);
 }

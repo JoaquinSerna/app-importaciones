@@ -22,7 +22,7 @@ export type CategoriaCosto =
   | "imprevistos"
   | "otro";
 
-export type OrigenCosto = "simulador" | "manual" | "pdf_despachante";
+export type OrigenCosto = "simulador" | "manual" | "pdf_despachante" | "real";
 
 export type CriterioProrrateoTipo = "cbm" | "peso" | "fob" | "unidades";
 

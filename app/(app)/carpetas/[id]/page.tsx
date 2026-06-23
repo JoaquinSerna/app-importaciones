@@ -211,6 +211,7 @@ export default async function CarpetaDetallePage({ params }: { params: { id: str
               monto_simulado_usd: number | null;
               fuente: string;
               es_nuevo: boolean;
+              confirmado: boolean;
             }[]}
           />
         </TabsContent>

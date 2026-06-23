@@ -231,6 +231,41 @@ Respondé SOLO con JSON válido, sin texto adicional:
   return { items: result.items, cbm_proporcion: cbmProporcionPromedio, advertencias };
 }
 
+// Lleva los montos reales confirmados de la comparación a la tabla "costos"
+// (que es lo que ve la pestaña Costos). Sin esto, los resultados de la
+// Sección 3 quedaban aislados y la columna "Real" de Costos seguía vacía.
+async function sincronizarComparacionACostos(carpetaId: string, itemsConfirmados: ItemPropuesto[]) {
+  const supabase = createClient();
+
+  const conMatch = itemsConfirmados.filter((i) => i.concepto_simulado && i.concepto_simulado !== "FOB del proveedor");
+  for (const item of conMatch) {
+    await supabase
+      .from("costos")
+      .update({ monto_real_usd: item.monto_real_usd })
+      .eq("carpeta_id", carpetaId)
+      .eq("concepto", item.concepto_simulado as string);
+  }
+
+  // Costos nuevos (sin equivalente en la simulación) → se reemplazan enteros
+  // cada vez para no duplicar entre re-análisis.
+  await supabase.from("costos").delete().eq("carpeta_id", carpetaId).eq("origen", "real");
+  const nuevos = itemsConfirmados.filter((i) => i.es_nuevo);
+  if (nuevos.length > 0) {
+    await supabase.from("costos").insert(
+      nuevos.map((item) => ({
+        carpeta_id: carpetaId,
+        nivel: "carpeta" as const,
+        concepto: item.concepto_real,
+        categoria: "otro" as const,
+        origen: "real" as const,
+        monto_estimado_usd: 0,
+        monto_real_usd: item.monto_real_usd,
+        notas: `Detectado automáticamente en ${item.fuente}`,
+      }))
+    );
+  }
+}
+
 export async function guardarComparacion(carpetaId: string, items: ItemPropuesto[]) {
   const supabase = createClient();
   await supabase.from("comparacion_items").delete().eq("carpeta_id", carpetaId);
@@ -249,5 +284,48 @@ export async function guardarComparacion(carpetaId: string, items: ItemPropuesto
     );
     if (error) throw new Error(error.message);
   }
+  await sincronizarComparacionACostos(carpetaId, items);
   revalidatePath(`/carpetas/${carpetaId}`);
+}
+
+// Corre el análisis sin intervención del usuario: los matches con alta
+// confianza se confirman y se sincronizan a Costos solos; los dudosos quedan
+// guardados como pendientes para que la Sección 3 los muestre listos para
+// revisar (en vez de arrancar vacía y obligar a apretar "Analizar").
+export async function autoAnalizarCarpeta(carpetaId: string): Promise<void> {
+  try {
+    const resultado = await analizarCostosReales(carpetaId);
+    const supabase = createClient();
+
+    await supabase.from("comparacion_items").delete().eq("carpeta_id", carpetaId);
+    if (resultado.items.length > 0) {
+      const { error } = await supabase.from("comparacion_items").insert(
+        resultado.items.map((item) => ({
+          carpeta_id: carpetaId,
+          concepto_simulado: item.concepto_simulado,
+          monto_simulado_usd: item.monto_simulado_usd,
+          concepto_real: item.concepto_real,
+          monto_real_usd: item.monto_real_usd,
+          fuente: item.fuente,
+          es_nuevo: item.es_nuevo,
+          confirmado: item.confidence >= 0.85,
+        }))
+      );
+      if (error) {
+        console.error("autoAnalizarCarpeta: insert comparacion_items", error);
+        return;
+      }
+    }
+
+    const confirmados = resultado.items.filter((i) => i.confidence >= 0.85);
+    if (confirmados.length > 0) {
+      await sincronizarComparacionACostos(carpetaId, confirmados);
+    }
+
+    revalidatePath(`/carpetas/${carpetaId}`);
+  } catch (err) {
+    // Best-effort: si faltan documentos o la IA falla, no debe romper la
+    // subida del documento que disparó este análisis automático.
+    console.error("autoAnalizarCarpeta", err);
+  }
 }
