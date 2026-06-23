@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useToast } from "@/components/ui/use-toast";
 import type { Documento, TipoDocumento } from "@/lib/types";
+import { AsignarTributosNcm } from "./AsignarTributosNcm";
 import { RevisionMonedasDespacho } from "./RevisionMonedasDespacho";
 
 interface SlotConfig {
@@ -326,6 +327,8 @@ export function DocumentosContenedor({ contenedorId, documentos }: DocumentosCon
           </CardContent>
         </Card>
       )}
+
+      {monedasConfirmadas && <AsignarTributosNcm contenedorId={contenedorId} />}
     </div>
   );
 }

@@ -199,67 +199,121 @@ function convertirItemsPorNcm(
   }));
 }
 
-// Distribuye los tributos específicos de un NCM (ej. anti-dumping) solo entre
-// las carpetas/SKUs que tienen ESE NCM, prorrateado por FOB entre ellos —
-// nunca entre todos los SKUs del contenedor.
-async function sincronizarTributosPorNcm(contenedorId: string, itemsPorNcm: ItemPorNcmConfirmado[]) {
-  const conTributos = itemsPorNcm.filter((i) => i.otros_tributos.length > 0);
-  if (conTributos.length === 0) return;
+export interface SkuParaTributoNcm {
+  skuId: string;
+  carpetaId: string;
+  carpetaNumero: string;
+  descripcion: string | null;
+  ncmCodigo: string | null;
+  fobUsd: number;
+  tributosActuales: { concepto: string; montoUsd: number }[];
+}
 
+// Lista todos los SKUs de las carpetas asignadas a este contenedor, con
+// cualquier tributo específico por NCM que ya tengan cargado — para que el
+// usuario elija a mano a quién corresponde (ej. derechos anti-dumping),
+// en vez de que la IA intente adivinarlo por ítem del despacho.
+export async function listarSkusParaTributoNcm(contenedorId: string): Promise<SkuParaTributoNcm[]> {
   const supabase = createClient();
+
   const { data: asignaciones } = await supabase
+    .from("carpeta_contenedores")
+    .select("carpeta_id, carpetas(numero_carpeta)")
+    .eq("contenedor_id", contenedorId);
+  const carpetaIds = (asignaciones ?? []).map((a) => a.carpeta_id);
+  if (carpetaIds.length === 0) return [];
+
+  const numeroPorCarpeta = new Map(
+    (asignaciones ?? []).map((a) => [
+      a.carpeta_id,
+      (a.carpetas as unknown as { numero_carpeta: string } | null)?.numero_carpeta ?? "—",
+    ])
+  );
+
+  const [{ data: skus }, { data: costosNcm }] = await Promise.all([
+    supabase
+      .from("skus")
+      .select("id, carpeta_id, descripcion, cantidad, precio_unitario_fob_usd, ncm_aranceles(codigo_ncm)")
+      .in("carpeta_id", carpetaIds)
+      .order("created_at", { ascending: true }),
+    supabase
+      .from("costos")
+      .select("carpeta_id, concepto, monto_real_usd, ncm_codigo")
+      .in("carpeta_id", carpetaIds)
+      .not("ncm_codigo", "is", null),
+  ]);
+
+  return (skus ?? []).map((s) => {
+    const ncmCodigo = (s.ncm_aranceles as unknown as { codigo_ncm: string } | null)?.codigo_ncm ?? null;
+    const tributosActuales = (costosNcm ?? [])
+      .filter((c) => c.carpeta_id === s.carpeta_id && c.ncm_codigo === ncmCodigo)
+      .map((c) => ({ concepto: c.concepto, montoUsd: c.monto_real_usd ?? 0 }));
+    return {
+      skuId: s.id,
+      carpetaId: s.carpeta_id,
+      carpetaNumero: numeroPorCarpeta.get(s.carpeta_id) ?? "—",
+      descripcion: s.descripcion,
+      ncmCodigo,
+      fobUsd: (s.cantidad ?? 0) * (s.precio_unitario_fob_usd ?? 0),
+      tributosActuales,
+    };
+  });
+}
+
+export interface AsignacionTributoNcm {
+  skuId: string;
+  carpetaId: string;
+  ncmCodigo: string;
+  montoUsd: number;
+}
+
+// Reemplaza, para el concepto dado, todos los costos con ncm_codigo en las
+// carpetas de este contenedor por la selección manual del usuario.
+export async function asignarTributoPorNcm(
+  contenedorId: string,
+  concepto: string,
+  asignaciones: AsignacionTributoNcm[]
+): Promise<{ error?: string }> {
+  const supabase = createClient();
+
+  const { data: asignacionesContenedor } = await supabase
     .from("carpeta_contenedores")
     .select("carpeta_id")
     .eq("contenedor_id", contenedorId);
-  const carpetaIds = (asignaciones ?? []).map((a) => a.carpeta_id);
-  if (carpetaIds.length === 0) return;
+  const carpetaIds = (asignacionesContenedor ?? []).map((a) => a.carpeta_id);
+  if (carpetaIds.length === 0) return { error: "Este contenedor no tiene carpetas asignadas." };
 
-  const { data: skus } = await supabase
-    .from("skus")
-    .select("carpeta_id, cantidad, precio_unitario_fob_usd, ncm_aranceles(codigo_ncm)")
+  const { error: deleteError } = await supabase
+    .from("costos")
+    .delete()
     .in("carpeta_id", carpetaIds)
-    .not("ncm_id", "is", null);
+    .eq("concepto", concepto)
+    .not("ncm_codigo", "is", null);
+  if (deleteError) return { error: deleteError.message };
 
-  for (const item of conTributos) {
-    const matching = (skus ?? []).filter(
-      (s) => (s.ncm_aranceles as unknown as { codigo_ncm: string } | null)?.codigo_ncm === item.ncm
+  const validas = asignaciones.filter((a) => a.montoUsd > 0);
+  if (validas.length > 0) {
+    const { error: insertError } = await supabase.from("costos").insert(
+      validas.map((a) => ({
+        carpeta_id: a.carpetaId,
+        nivel: "carpeta" as const,
+        concepto,
+        categoria: "otro" as const,
+        origen: "real" as const,
+        monto_estimado_usd: 0,
+        monto_real_usd: a.montoUsd,
+        ncm_codigo: a.ncmCodigo,
+        notas: `Asignado manualmente al NCM ${a.ncmCodigo}`,
+      }))
     );
-    if (matching.length === 0) continue;
-
-    const fobPorCarpeta = new Map<string, number>();
-    for (const s of matching) {
-      const fob = (s.cantidad ?? 0) * (s.precio_unitario_fob_usd ?? 0);
-      fobPorCarpeta.set(s.carpeta_id, (fobPorCarpeta.get(s.carpeta_id) ?? 0) + fob);
-    }
-    const fobTotalNcm = Array.from(fobPorCarpeta.values()).reduce((a, v) => a + v, 0);
-
-    for (const otro of item.otros_tributos) {
-      if (otro.monto_usd <= 0) continue;
-      for (const [carpetaId, fobCarpetaNcm] of Array.from(fobPorCarpeta.entries())) {
-        const proporcion = fobTotalNcm > 0 ? fobCarpetaNcm / fobTotalNcm : 1 / fobPorCarpeta.size;
-        const monto = otro.monto_usd * proporcion;
-
-        await supabase
-          .from("costos")
-          .delete()
-          .eq("carpeta_id", carpetaId)
-          .eq("ncm_codigo", item.ncm)
-          .eq("concepto", otro.concepto);
-        await supabase.from("costos").insert({
-          carpeta_id: carpetaId,
-          nivel: "carpeta",
-          concepto: otro.concepto,
-          categoria: "otro",
-          origen: "real",
-          monto_estimado_usd: 0,
-          monto_real_usd: monto,
-          ncm_codigo: item.ncm,
-          notas: `Tributo específico del NCM ${item.ncm} (despacho de aduana)`,
-        });
-        revalidatePath(`/carpetas/${carpetaId}`);
-      }
-    }
+    if (insertError) return { error: insertError.message };
   }
+
+  for (const carpetaId of Array.from(new Set([...carpetaIds, ...validas.map((a) => a.carpetaId)]))) {
+    revalidatePath(`/carpetas/${carpetaId}`);
+  }
+  revalidatePath(`/contenedores/${contenedorId}`);
+  return {};
 }
 
 export async function confirmarMonedasDespacho(
@@ -309,7 +363,11 @@ export async function confirmarMonedasDespacho(
   if (error) throw new Error(error.message);
 
   await sincronizarCostosRealesDeDespacho(contenedorId, itemsConfirmados);
-  await sincronizarTributosPorNcm(contenedorId, itemsPorNcmConfirmado);
+  // Los tributos específicos por NCM (anti-dumping, etc.) ya NO se asignan
+  // automáticamente acá — la extracción por ítem no es confiable y terminaba
+  // aplicándolos a SKUs que no correspondían. Ahora se asignan a mano con
+  // asignarTributoPorNcm() (ver más abajo), eligiendo exactamente qué SKU.
+  void itemsPorNcmConfirmado;
   await autoAnalizarCarpetasDelContenedor(contenedorId);
 
   revalidatePath(`/contenedores/${contenedorId}`);
