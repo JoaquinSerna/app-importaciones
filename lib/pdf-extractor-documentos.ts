@@ -183,13 +183,11 @@ Analizá este despacho de aduana y extraé la siguiente información en JSON.
 
 IMPORTANTE sobre montos: NO asumas ni asignes la moneda (USD o ARS) de cada costo — eso lo va a confirmar el usuario manualmente después, ya que los despachos varían y la IA no puede adivinar esto de forma confiable. Solo extraé el número exactamente como aparece en el documento, sin signo de moneda.
 
-En "items_costos" incluí TODOS los conceptos de valor o costo del despacho COMPLETO (FOB, Flete, Seguro, CIF, Derechos de importación, Tasa estadística, IVA, IVA adicional, Anticipo de ganancias, Derechos anti-dumping, salvaguardias, aranceles especiales, y cualquier otro tributo o concepto monetario que aparezca), cada uno con su monto TOTAL sumando todos los ítems del despacho. Omití los conceptos que no aparezcan en el documento — no inventes valores en cero.
+"valores_generales" son montos que aparecen UNA SOLA VEZ en el despacho (no por ítem) — normalmente en un resumen o en los datos generales: FOB total, Flete internacional total, Seguro total, CIF/Valor en aduana total, y tributos especiales (anti-dumping, salvaguardias, aranceles especiales) si el despacho los expresa como un total único. Extraé el número tal cual figura, no inventes ni calcules nada.
 
-IMPORTANTE sobre despachos con múltiples ítems/páginas (cada ítem es una posición NCM distinta): la tabla de liquidación tiene dos columnas de importe — "DEL ITEM" (el monto de ESE ítem puntual) y "TOTAL" (un acumulado/resumen que suele aparecer en la primera hoja o repetirse en cada página, y que YA es la suma de todo el despacho hecha por el propio documento).
-- Para calcular el monto total de cada concepto en "items_costos", SUMÁ la columna "DEL ITEM" de TODOS los ítems/páginas (un valor por cada ítem, sumados entre sí). Esto es correcto y esperado.
-- NO uses ni sumes la columna "TOTAL" de la primera hoja (o la que se repite por página) como si fuera un ítem más — esa columna ya es el resultado final, sumarla de nuevo duplica el monto. Podés usarla solo como verificación: el total que vos calculés sumando "DEL ITEM" de todos los ítems debería coincidir con esa columna "TOTAL".
-
-Si un tributo como "Derechos anti-dumping" solo aparece en algunos ítems del despacho (no en todos), igual sumá el monto de los ítems que lo tengan y poné ese total en "items_costos" con su nombre — no hace falta indicar a qué ítems corresponde, eso lo va a definir el usuario manualmente en la app.
+"items" es la lista de TODOS los ítems/posiciones NCM del despacho (puede haber muchos, en varias páginas). Para cada ítem extraé SOLO los montos de la columna "DEL ITEM" de Derechos de importación, Tasa estadística, IVA e IVA adicional/Anticipo de ganancias si aparecen — estos son los que varían ítem por ítem y NO tenés que sumarlos vos: el código de la aplicación los suma después automáticamente. Es más importante que cada número individual sea correcto que tratar de calcular un total.
+- NO uses la columna "TOTAL" (acumulado/resumen que aparece en la primera hoja o se repite por página) para nada — ni la copies en "items" ni la sumes en "valores_generales".
+- Si el despacho tiene una sola página/ítem, "items" tiene un solo elemento.
 
 {
   "numero_despacho": "número completo del despacho (ej: 012D-2024-000123)",
@@ -199,20 +197,28 @@ Si un tributo como "Derechos anti-dumping" solo aparece en algunos ítems del de
   "aduana": "nombre de la aduana",
   "regimen": "código y descripción del régimen de importación",
   "tipo_cambio": número (tipo de cambio / cotización que figura en el despacho, ej: "Cotiz = 1.382,00", o null si no aparece),
-  "items_costos": [
+  "valores_generales": [
     { "concepto": "FOB", "monto": número },
     { "concepto": "Flete internacional", "monto": número },
     { "concepto": "Seguro", "monto": número },
     { "concepto": "CIF", "monto": número },
-    { "concepto": "Derechos de importación", "monto": número },
-    { "concepto": "Tasa estadística", "monto": número },
-    { "concepto": "IVA", "monto": número },
-    { "concepto": "IVA adicional", "monto": número },
-    { "concepto": "Anticipo de ganancias", "monto": número },
-    { "concepto": "Derechos anti-dumping", "monto": número, "_comentario": "solo si aparece en el despacho" }
+    { "concepto": "Derechos anti-dumping", "monto": número, "_comentario": "solo si el despacho lo muestra como un total único; si varía por ítem, ponelo en 'items' en cambio" }
+  ],
+  "items": [
+    {
+      "item": número de ítem,
+      "ncm": "código NCM de 8 dígitos",
+      "derechos_importacion": número,
+      "tasa_estadistica": número,
+      "iva": número,
+      "iva_adicional": número,
+      "ganancias": número,
+      "arancel_sim": número,
+      "anti_dumping": número
+    }
   ]
 }
-Solo devolvé el JSON, sin texto adicional.`,
+Omití cualquier campo (en "valores_generales" o dentro de un ítem) que no aparezca en el documento — no inventes valores en cero. Solo devolvé el JSON, sin texto adicional.`,
 };
 
 export async function extraerDatosDocumento(
@@ -244,9 +250,13 @@ export async function extraerDatosDocumento(
         },
       });
 
+  // Los despachos pueden tener muchos ítems (varias páginas) — con pocos
+  // tokens la respuesta se corta a la mitad y el JSON queda incompleto.
+  const maxTokens = tipo === "despacho_aduana" ? 8192 : 2048;
+
   const response = await client.messages.create({
     model: "claude-opus-4-8",
-    max_tokens: 2048,
+    max_tokens: maxTokens,
     messages: [
       {
         role: "user",
@@ -259,9 +269,51 @@ export async function extraerDatosDocumento(
   const jsonMatch = text.match(/\{[\s\S]*\}/);
   if (!jsonMatch) return null;
 
+  let datos: Record<string, unknown> | null;
   try {
-    return JSON.parse(jsonMatch[0]);
+    datos = JSON.parse(jsonMatch[0]);
   } catch {
     return null;
   }
+
+  if (tipo === "despacho_aduana" && datos) {
+    datos.items_costos = construirItemsCostosDespacho(datos);
+  }
+
+  return datos;
+}
+
+// Suma en código (no en la IA) los montos por ítem del despacho — la IA
+// extrae cada número individual, que es confiable; pedirle que sume 10-20
+// ítems mentalmente no lo es, y daba un total distinto en cada corrida.
+function construirItemsCostosDespacho(datos: Record<string, unknown>): { concepto: string; monto: number }[] {
+  const valoresGenerales = (datos.valores_generales ?? []) as { concepto: string; monto: number }[];
+  const items = (datos.items ?? []) as Record<string, number | string | undefined>[];
+
+  const sumarCampo = (campo: string) =>
+    items.reduce((acc, item) => acc + (Number(item[campo]) || 0), 0);
+
+  const resultado = [...valoresGenerales];
+
+  const CAMPOS_POR_ITEM: { campo: string; concepto: string }[] = [
+    { campo: "derechos_importacion", concepto: "Derechos de importación" },
+    { campo: "tasa_estadistica", concepto: "Tasa estadística" },
+    { campo: "iva", concepto: "IVA" },
+    { campo: "iva_adicional", concepto: "IVA adicional" },
+    { campo: "ganancias", concepto: "Anticipo de ganancias" },
+    { campo: "arancel_sim", concepto: "Arancel SIM Impo" },
+    { campo: "anti_dumping", concepto: "Derechos anti-dumping" },
+  ];
+
+  for (const { campo, concepto } of CAMPOS_POR_ITEM) {
+    const total = sumarCampo(campo);
+    if (total > 0) {
+      // Si "valores_generales" ya traía este concepto (caso anti-dumping
+      // como total único), no lo dupliques sumando también por ítem.
+      const yaExiste = resultado.some((r) => r.concepto === concepto);
+      if (!yaExiste) resultado.push({ concepto, monto: total });
+    }
+  }
+
+  return resultado;
 }
