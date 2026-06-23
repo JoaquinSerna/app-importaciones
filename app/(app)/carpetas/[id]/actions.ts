@@ -4,6 +4,22 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import type { CategoriaCosto, EstadoCarpeta } from "@/lib/types";
 
+export async function actualizarTituloCarpeta(carpetaId: string, titulo: string): Promise<{ error?: string }> {
+  const supabase = createClient();
+  const { error } = await supabase
+    .from("carpetas")
+    .update({ titulo: titulo.trim() || null })
+    .eq("id", carpetaId);
+  if (error) {
+    console.error("actualizarTituloCarpeta", error);
+    return { error: error.message };
+  }
+  revalidatePath(`/carpetas/${carpetaId}`);
+  revalidatePath("/carpetas");
+  revalidatePath("/dashboard");
+  return {};
+}
+
 const ORDEN_ESTADO: EstadoCarpeta[] = ["simulacion", "pre_embarque", "en_transito", "en_aduana", "finalizada"];
 
 // Sube el estado de la carpeta al completar hitos del Timeline, pero nunca lo

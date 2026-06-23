@@ -33,7 +33,7 @@ export default async function CarpetasPage() {
 
   const { data: carpetas } = await supabase
     .from("carpetas")
-    .select("id, numero_carpeta, estado, fob_total_usd, created_at, proveedores(nombre)")
+    .select("id, numero_carpeta, titulo, estado, fob_total_usd, created_at, proveedores(nombre)")
     .order("created_at", { ascending: false });
 
   return (
@@ -59,6 +59,7 @@ export default async function CarpetasPage() {
             <TableHeader>
               <TableRow>
                 <TableHead>Número</TableHead>
+                <TableHead>Título</TableHead>
                 <TableHead>Proveedor</TableHead>
                 <TableHead className="text-right">FOB (USD)</TableHead>
                 <TableHead>Estado</TableHead>
@@ -70,6 +71,7 @@ export default async function CarpetasPage() {
               {carpetas.map((c) => (
                 <TableRow key={c.id}>
                   <TableCell className="font-mono font-medium">{c.numero_carpeta}</TableCell>
+                  <TableCell className="text-muted-foreground">{c.titulo || "—"}</TableCell>
                   <TableCell>
                     {(c.proveedores as unknown as { nombre: string } | null)?.nombre ?? "—"}
                   </TableCell>

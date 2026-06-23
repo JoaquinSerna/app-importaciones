@@ -60,6 +60,7 @@ export function SimuladorForm({
   const { toast } = useToast();
   const [isPending, startTransition] = useTransition();
 
+  const [titulo, setTitulo] = useState("");
   const [proveedorId, setProveedorId] = useState("");
   const [cbmInput, setCbmInput] = useState("");
   const [pesoInput, setPesoInput] = useState("");
@@ -135,6 +136,7 @@ export function SimuladorForm({
     startTransition(async () => {
       try {
         await crearCarpetaDesdeSimulacion({
+          titulo: titulo.trim() || undefined,
           proveedorId: proveedorId || undefined,
           fobTotalUsd: fobTotal,
           cbmTotal: cbm,
@@ -163,6 +165,13 @@ export function SimuladorForm({
       <Card>
         <CardHeader><CardTitle>Datos de la simulación</CardTitle></CardHeader>
         <CardContent className="space-y-4">
+
+          <div className="space-y-2">
+            <Label>Título de la carpeta</Label>
+            <Input value={titulo} onChange={(e) => { setTitulo(e.target.value); setDirty(true); }}
+              placeholder="ej: Cascos de seguridad, Conos viales..." />
+            <p className="text-xs text-muted-foreground">Para identificar la carpeta a simple vista, además del proveedor.</p>
+          </div>
 
           <div className="space-y-2">
             <Label>Proveedor</Label>

@@ -6,6 +6,7 @@ import { ContenedoresMultiSelector } from "@/components/carpetas/ContenedoresMul
 import { CostosTable } from "@/components/carpetas/CostosTable";
 import { Documentos } from "@/components/carpetas/Documentos";
 import { EstadoCarpetaSelector } from "@/components/carpetas/EstadoCarpetaSelector";
+import { TituloCarpetaEditor } from "@/components/carpetas/TituloCarpetaEditor";
 import { SeccionComparacion } from "@/components/carpetas/SeccionComparacion";
 import { SkusEditor } from "@/components/carpetas/SkusEditor";
 import { Timeline } from "@/components/carpetas/Timeline";
@@ -76,6 +77,7 @@ export default async function CarpetaDetallePage({ params }: { params: { id: str
         <div>
           <h1 className="text-2xl font-semibold">{carpetaTyped.numero_carpeta}</h1>
           <p className="text-muted-foreground">{carpetaTyped.proveedores?.nombre ?? "Sin proveedor"}</p>
+          <TituloCarpetaEditor carpetaId={carpetaTyped.id} tituloActual={carpetaTyped.titulo} />
         </div>
         <EstadoCarpetaSelector carpetaId={carpetaTyped.id} estadoActual={carpetaTyped.estado} />
       </div>

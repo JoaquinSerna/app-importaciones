@@ -7,6 +7,7 @@ import { createClient } from "@/lib/supabase/server";
 import type { NcmArancel, TipoContenedor, TipoImportacion } from "@/lib/types";
 
 export interface CrearCarpetaInput {
+  titulo?: string;
   proveedorId?: string;
   fobTotalUsd: number;
   cbmTotal?: number;
@@ -92,6 +93,7 @@ export async function crearCarpetaDesdeSimulacion(input: CrearCarpetaInput) {
     .from("carpetas")
     .insert({
       numero_carpeta: numeroCarpeta,
+      titulo: input.titulo ?? null,
       proveedor_id: input.proveedorId ?? null,
       fob_total_usd: input.fobTotalUsd,
       cbm_total: input.cbmTotal ?? null,

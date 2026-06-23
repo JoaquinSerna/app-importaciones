@@ -110,6 +110,7 @@ export type TipoImportacion = "bien_de_cambio" | "bien_de_uso";
 export interface Carpeta {
   id: string;
   numero_carpeta: string;
+  titulo: string | null;
   proveedor_id: string | null;
   incoterm: string;
   moneda: string;

@@ -31,6 +31,7 @@ export function CarpetaCard({ carpeta }: CarpetaCardProps) {
           </div>
         </CardHeader>
         <CardContent className="space-y-1 text-sm text-muted-foreground">
+          {carpeta.titulo && <p className="font-medium text-foreground">{carpeta.titulo}</p>}
           {carpeta.proveedor_nombre && <p>{carpeta.proveedor_nombre}</p>}
           <p>FOB: {formatUsd(carpeta.fob_total_usd)}</p>
           {diasAduana !== null && <p>En aduana hace {diasAduana} día(s)</p>}
