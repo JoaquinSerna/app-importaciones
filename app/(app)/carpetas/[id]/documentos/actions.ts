@@ -1,5 +1,6 @@
 "use server";
 
+import Anthropic from "@anthropic-ai/sdk";
 import { revalidatePath } from "next/cache";
 
 import { autoAnalizarCarpeta } from "@/app/(app)/carpetas/[id]/analizar-costos/actions";
@@ -114,6 +115,99 @@ async function sincronizarDescripcionesSkusDesdeDocumento(carpetaId: string, tip
   );
 }
 
+interface SkuParaNombrar {
+  id: string;
+  descripcion: string | null;
+  cantidad: number;
+  precio_unitario_fob_usd: number;
+  ncm_aranceles: { codigo_ncm: string } | null;
+}
+
+// Cuando la cantidad de ítems del documento no coincide 1 a 1 con los SKUs
+// (típicamente porque dos productos con el mismo NCM se unificaron en un solo
+// SKU al crear la carpeta), le pedimos a la IA que agrupe los ítems según el
+// monto FOB de cada SKU en vez de pedirle al usuario que lo resuelva a mano.
+async function agruparDescripcionesConIA(
+  supabase: ReturnType<typeof createClient>,
+  carpetaId: string,
+  tipo: "proforma_invoice" | "packing_list",
+  skus: SkuParaNombrar[]
+): Promise<number> {
+  const { data: doc } = await supabase
+    .from("documentos")
+    .select("datos_extraidos")
+    .eq("carpeta_id", carpetaId)
+    .eq("tipo", tipo)
+    .eq("estado", "extraido")
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  const items = (doc?.datos_extraidos?.items ?? []) as {
+    descripcion?: string;
+    cantidad?: number;
+    precio_unitario?: number;
+    total?: number;
+  }[];
+  if (items.length === 0) return 0;
+
+  const itemsConMonto = items.map((it, i) => ({
+    index: i,
+    descripcion: it.descripcion ?? `Item ${i + 1}`,
+    monto: it.total ?? (it.cantidad ?? 0) * (it.precio_unitario ?? 0),
+  }));
+
+  const skusInfo = skus.map((s, i) => ({
+    index: i,
+    ncm: s.ncm_aranceles?.codigo_ncm ?? null,
+    montoFob: (s.cantidad ?? 1) * (s.precio_unitario_fob_usd ?? 0),
+  }));
+
+  const client = new Anthropic();
+  const response = await client.messages.create({
+    model: "claude-opus-4-8",
+    max_tokens: 2048,
+    messages: [{
+      role: "user",
+      content: `Tengo una lista de ítems de una proforma/packing list y una lista de SKUs (uno por NCM) de la misma carpeta. La cantidad de ítems NO coincide con la cantidad de SKUs porque a veces dos o más productos con el mismo NCM se agruparon en un solo SKU.
+
+Tu tarea: asignar cada ítem a UN SOLO SKU, agrupando los que correspondan, de forma que la suma de los montos de los ítems asignados a cada SKU sea lo más cercana posible al "montoFob" de ese SKU. Todos los ítems deben quedar asignados a algún SKU.
+
+SKUs (índice, NCM, monto FOB esperado):
+${skusInfo.map(s => `- SKU ${s.index}: NCM ${s.ncm ?? "?"}, monto FOB USD ${s.montoFob.toFixed(2)}`).join("\n")}
+
+Ítems (índice, descripción, monto):
+${itemsConMonto.map(it => `- Item ${it.index}: "${it.descripcion}" — USD ${it.monto.toFixed(2)}`).join("\n")}
+
+Respondé SOLO con JSON válido, sin texto adicional:
+{
+  "asignaciones": [
+    { "skuIndex": número, "descripcion": "nombre combinado de los ítems asignados a este SKU, ej: 'Producto A + Producto B' si hay más de uno" }
+  ]
+}`,
+    }],
+  });
+
+  const text = response.content.find((c) => c.type === "text")?.text ?? "";
+  const jsonMatch = text.match(/\{[\s\S]*\}/);
+  if (!jsonMatch) return 0;
+
+  const resultado = JSON.parse(jsonMatch[0]) as { asignaciones: { skuIndex: number; descripcion: string }[] };
+
+  let actualizados = 0;
+  for (const asignacion of resultado.asignaciones) {
+    const sku = skus[asignacion.skuIndex];
+    if (!sku) continue;
+    const codigoNcm = sku.ncm_aranceles?.codigo_ncm ?? null;
+    const esPlaceholder = !sku.descripcion || sku.descripcion === codigoNcm;
+    if (!esPlaceholder || !asignacion.descripcion?.trim()) continue;
+
+    await supabase.from("skus").update({ descripcion: asignacion.descripcion.trim() }).eq("id", sku.id);
+    actualizados++;
+  }
+  return actualizados;
+}
+
 // Acción manual para carpetas donde la Proforma/Packing List ya estaban
 // subidas antes de que existiera el sync automático — permite reintentarlo
 // sin tener que volver a subir el documento.
@@ -124,14 +218,14 @@ export async function actualizarNombresSkusDesdeDocumentos(
 
   const { data: skus } = await supabase
     .from("skus")
-    .select("id, descripcion, created_at, ncm_aranceles(codigo_ncm)")
+    .select("id, descripcion, cantidad, precio_unitario_fob_usd, created_at, ncm_aranceles(codigo_ncm)")
     .eq("carpeta_id", carpetaId)
     .order("created_at", { ascending: true });
   if (!skus || skus.length === 0) {
     return { error: "Esta carpeta no tiene SKUs cargados." };
   }
 
-  const skusTyped = skus as unknown as { id: string; descripcion: string | null; ncm_aranceles: { codigo_ncm: string } | null }[];
+  const skusTyped = skus as unknown as SkuParaNombrar[];
 
   const resultadoProforma = await sincronizarDescripcionesDeUnDocumento(supabase, carpetaId, "proforma_invoice", skusTyped);
   if (resultadoProforma.actualizados > 0) {
@@ -149,12 +243,24 @@ export async function actualizarNombresSkusDesdeDocumentos(
   if (itemsEncontrados === 0) {
     return { error: "No se encontró Proforma Invoice ni Packing List extraídos con items en esta carpeta." };
   }
-  if (itemsEncontrados !== skus.length) {
-    return {
-      error: `El documento tiene ${itemsEncontrados} ítems pero la carpeta tiene ${skus.length} SKUs — no coinciden 1 a 1, no se puede asignar el nombre automáticamente.`,
-    };
+
+  // Las cantidades no coinciden 1 a 1 — probablemente porque algunos ítems se
+  // unificaron en un mismo SKU. Le pedimos a la IA que agrupe por monto FOB.
+  const tipoConItems = resultadoProforma.itemsEncontrados > 0 ? "proforma_invoice" : "packing_list";
+  try {
+    const actualizadosIA = await agruparDescripcionesConIA(supabase, carpetaId, tipoConItems, skusTyped);
+    if (actualizadosIA > 0) {
+      revalidatePath(`/carpetas/${carpetaId}`);
+      return { actualizados: actualizadosIA };
+    }
+  } catch (err) {
+    console.error("agruparDescripcionesConIA", err);
+    return { error: "No se pudo agrupar los ítems automáticamente. Probá de nuevo en un momento." };
   }
-  return { actualizados: 0 };
+
+  return {
+    error: `El documento tiene ${itemsEncontrados} ítems y la carpeta ${skus.length} SKUs. La IA no pudo agruparlos con confianza — puede que falten ítems o que los montos no cierren.`,
+  };
 }
 
 /** Sube un documento de cualquier tipo, lo persiste en DB y extrae datos con IA */
