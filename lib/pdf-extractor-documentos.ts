@@ -185,6 +185,8 @@ IMPORTANTE sobre montos: NO asumas ni asignes la moneda (USD o ARS) de cada cost
 
 En "items_costos" incluí TODOS los conceptos de valor o costo que encuentres en la liquidación (FOB, Flete, Seguro, CIF, Derechos de importación, Tasa estadística, IVA, IVA adicional, Anticipo de ganancias, Arancel, y cualquier otro tributo o concepto monetario que aparezca), cada uno con su monto. Omití los conceptos que no aparezcan en el documento — no inventes valores en cero.
 
+IMPORTANTE sobre despachos con múltiples ítems/páginas: la tabla de liquidación tiene dos columnas de importe — "DEL ITEM" (el monto de ese ítem puntual) y "TOTAL" (el acumulado de TODO el despacho hasta ese punto, no solo de ese ítem). La columna "TOTAL" YA está sumada por el documento. NO vuelvas a sumar los valores de "TOTAL" de varias páginas o ítems entre sí — eso duplicaría el monto. Para cada concepto (Derechos, Tasa estadística, IVA, etc.), tomá el valor de la columna "TOTAL" que figure en la ÚLTIMA página o en el resumen final del despacho, una sola vez.
+
 {
   "numero_despacho": "número completo del despacho (ej: 012D-2024-000123)",
   "importador": "nombre del importador",
@@ -205,7 +207,7 @@ En "items_costos" incluí TODOS los conceptos de valor o costo que encuentres en
     { "concepto": "Anticipo de ganancias", "monto": número }
   ]
 }
-Si hay múltiples páginas o ítems, sumá los montos totales del despacho. Solo devolvé el JSON, sin texto adicional.`,
+Solo devolvé el JSON, sin texto adicional.`,
 };
 
 export async function extraerDatosDocumento(
