@@ -183,9 +183,13 @@ Analizá este despacho de aduana y extraé la siguiente información en JSON.
 
 IMPORTANTE sobre montos: NO asumas ni asignes la moneda (USD o ARS) de cada costo — eso lo va a confirmar el usuario manualmente después, ya que los despachos varían y la IA no puede adivinar esto de forma confiable. Solo extraé el número exactamente como aparece en el documento, sin signo de moneda.
 
-En "items_costos" incluí TODOS los conceptos de valor o costo que encuentres en la liquidación (FOB, Flete, Seguro, CIF, Derechos de importación, Tasa estadística, IVA, IVA adicional, Anticipo de ganancias, Arancel, y cualquier otro tributo o concepto monetario que aparezca), cada uno con su monto. Omití los conceptos que no aparezcan en el documento — no inventes valores en cero.
+En "items_costos" incluí TODOS los conceptos de valor o costo del despacho COMPLETO (FOB, Flete, Seguro, CIF, Derechos de importación, Tasa estadística, IVA, IVA adicional, Anticipo de ganancias, Arancel, y cualquier otro tributo o concepto monetario que aparezca), cada uno con su monto TOTAL. Omití los conceptos que no aparezcan en el documento — no inventes valores en cero.
 
-IMPORTANTE sobre despachos con múltiples ítems/páginas: la tabla de liquidación tiene dos columnas de importe — "DEL ITEM" (el monto de ese ítem puntual) y "TOTAL" (el acumulado de TODO el despacho hasta ese punto, no solo de ese ítem). La columna "TOTAL" YA está sumada por el documento. NO vuelvas a sumar los valores de "TOTAL" de varias páginas o ítems entre sí — eso duplicaría el monto. Para cada concepto (Derechos, Tasa estadística, IVA, etc.), tomá el valor de la columna "TOTAL" que figure en la ÚLTIMA página o en el resumen final del despacho, una sola vez.
+IMPORTANTE sobre despachos con múltiples ítems/páginas (cada ítem es una posición NCM distinta): la tabla de liquidación tiene dos columnas de importe — "DEL ITEM" (el monto de ESE ítem puntual) y "TOTAL" (un acumulado/resumen que suele aparecer en la primera hoja o repetirse en cada página, y que YA es la suma de todo el despacho hecha por el propio documento).
+- Para calcular el monto total de cada concepto en "items_costos", SUMÁ la columna "DEL ITEM" de TODOS los ítems/páginas (un valor por cada ítem, sumados entre sí). Esto es correcto y esperado.
+- NO uses ni sumes la columna "TOTAL" de la primera hoja (o la que se repite por página) como si fuera un ítem más — esa columna ya es el resultado final, sumarla de nuevo duplica el monto. Podés usarla solo como verificación: el total que vos calculés sumando "DEL ITEM" de todos los ítems debería coincidir con esa columna "TOTAL".
+
+Además, en "items_por_ncm" incluí el detalle de cada ítem por separado (su NCM y los montos de su columna "DEL ITEM"), para poder distribuir los costos reales según el NCM de cada producto.
 
 {
   "numero_despacho": "número completo del despacho (ej: 012D-2024-000123)",
@@ -205,6 +209,17 @@ IMPORTANTE sobre despachos con múltiples ítems/páginas: la tabla de liquidaci
     { "concepto": "IVA", "monto": número },
     { "concepto": "IVA adicional", "monto": número },
     { "concepto": "Anticipo de ganancias", "monto": número }
+  ],
+  "items_por_ncm": [
+    {
+      "ncm": "código NCM de 8 dígitos de este ítem",
+      "fob_usd": número (FOB de este ítem, columna DEL ITEM),
+      "derechos_importacion": número,
+      "tasa_estadistica": número,
+      "iva": número,
+      "iva_adicional": número,
+      "ganancias": número
+    }
   ]
 }
 Solo devolvé el JSON, sin texto adicional.`,
