@@ -3,9 +3,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { revalidatePath } from "next/cache";
 
-import { calcularCascada, costosComoLineas } from "@/lib/calculadora-costos";
 import { createClient } from "@/lib/supabase/server";
-import type { ParametrosGlobales } from "@/lib/types";
 
 export interface ItemPropuesto {
   concepto_real: string;
@@ -35,23 +33,19 @@ export async function analizarCostosReales(carpetaId: string): Promise<Resultado
     .single();
   if (!carpeta) throw new Error("Carpeta no encontrada");
 
-  const { data: params } = await supabase
-    .from("parametros_globales")
-    .select("*")
-    .eq("id", carpeta.parametros_snapshot_id)
-    .single();
-  if (!params) throw new Error("Parámetros no encontrados");
+  // 2. Simulación: usamos los costos YA GUARDADOS de la carpeta (origen='simulador'),
+  // que ya tienen en cuenta el NCM y el tipo de importación reales. Recalcular la
+  // cascada acá de nuevo sin esos datos hacía que Derechos/Tasa estadística salieran
+  // en 0% y quedaran afuera de la lista — por eso la IA los marcaba siempre como "nuevo".
+  const { data: costosSimulados } = await supabase
+    .from("costos")
+    .select("concepto, monto_estimado_usd")
+    .eq("carpeta_id", carpetaId)
+    .eq("origen", "simulador");
 
-  // 2. Simulación
-  const cascada = calcularCascada(params as ParametrosGlobales, {
-    fobTotalUsd: carpeta.fob_total_usd,
-    cbmTotal: carpeta.cbm_total ?? undefined,
-    pesoTotalKg: carpeta.peso_total_kg ?? undefined,
-  });
-  const lineasSimulacion = costosComoLineas(cascada);
   const simulacionConFob = [
     { concepto: "FOB del proveedor", monto_estimado_usd: carpeta.fob_total_usd },
-    ...lineasSimulacion,
+    ...(costosSimulados ?? []),
   ];
 
   // 3. Documentos de la carpeta

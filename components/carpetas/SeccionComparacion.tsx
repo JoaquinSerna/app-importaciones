@@ -285,8 +285,10 @@ export function SeccionComparacion({ carpetaId, comparacionGuardada }: Props) {
                       </td>
                       <td className="px-4 py-2 text-xs text-muted-foreground">{item.concepto_real}</td>
                       <td className="px-4 py-2 text-right font-medium">{fmt(item.monto_real_usd)}</td>
-                      <td className={`px-4 py-2 text-right text-xs font-medium ${!d ? "text-muted-foreground" : d.d > 0 ? "text-destructive" : "text-green-600"}`}>
-                        {!d ? "—" : `${d.d > 0 ? "+" : ""}${fmt(d.d)} (${d.pct > 0 ? "+" : ""}${d.pct.toFixed(0)}%)`}
+                      <td className={`px-4 py-2 text-right text-xs font-medium ${item.es_nuevo ? "text-destructive" : !d ? "text-muted-foreground" : d.d > 0 ? "text-destructive" : "text-green-600"}`}>
+                        {item.es_nuevo
+                          ? `-${fmt(item.monto_real_usd)}`
+                          : !d ? "—" : `${d.d > 0 ? "+" : ""}${fmt(d.d)} (${d.pct > 0 ? "+" : ""}${d.pct.toFixed(0)}%)`}
                       </td>
                     </tr>
                   );

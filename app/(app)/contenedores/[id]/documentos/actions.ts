@@ -23,10 +23,12 @@ async function autoAnalizarCarpetasDelContenedor(contenedorId: string) {
 const BUCKET_DOCUMENTOS = "documentos";
 
 // Palabras clave para buscar en concepto del costo de la carpeta
-// IVA adicional va ANTES de IVA para que el match más específico tenga precedencia
+// IVA adicional va ANTES de IVA para que el match más específico tenga precedencia.
+// "Derechos anti-dumping" y "Tasa estadística monto máximo" se excluyen para que
+// no se confundan con "Derechos de importación" / "Tasa estadística" comunes.
 const TRIBUTO_KEYWORDS: { keywords: string[]; excluir?: string[] }[] = [
-  { keywords: ["derecho"] },
-  { keywords: ["tasa estadística", "tasa estadistica", "estadísti"] },
+  { keywords: ["derecho"], excluir: ["anti-dumping", "antidumping"] },
+  { keywords: ["tasa estadística", "tasa estadistica", "estadísti"], excluir: ["máximo", "maximo"] },
   { keywords: ["iva adicional", "iva adic"] },
   { keywords: ["iva"], excluir: ["adicional"] },
   { keywords: ["ganancia"] },
