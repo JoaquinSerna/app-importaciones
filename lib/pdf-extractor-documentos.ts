@@ -197,8 +197,12 @@ IMPORTANTE sobre montos: NO asumas ni asignes la moneda (USD o ARS) de cada cost
 - IIBB, INGRESOS BRUTOS → "IIBB"
 - Cualquier otro concepto que no reconozcas → copiá el texto tal como figura impreso, sin inventar a qué corresponde.
 NO omitas ninguna fila aunque no la reconozcas. NO tenés que sumar nada entre ítems: el código de la aplicación se encarga de sumar los montos ya clasificados. Es más importante que cada fila y cada número individual esté bien clasificado y sea correcto que tratar de calcular un total.
-- NO uses la columna "TOTAL" (acumulado/resumen que aparece en la primera hoja o se repite por página) para nada — ni la copies en "items" ni la sumes en "valores_generales".
-- Si el despacho tiene una sola página/ítem, "items" tiene un solo elemento.
+
+ATENCIÓN — esto es la causa más común de error: en la sección "LIQUIDACION" de cada ítem (típicamente la primera hoja) aparecen DOS bloques de columnas, uno al lado del otro:
+  - IZQUIERDA, encabezado "DEL ITEM": columnas Porc. / P-G-C / Importe → ESTOS son los montos de ESTE ítem puntual. Son los que tenés que usar.
+  - DERECHA, encabezado "TOTAL": columnas P-G-C / Importe → este es el ACUMULADO de TODO el despacho hasta ese momento (en el último ítem, coincide con el total del despacho completo). NO es el monto de este ítem. NO LO USES NUNCA, ni para "items" ni para "valores_generales" — usarlo da resultados mucho más altos que la realidad.
+- La forma de diferenciarlos: la columna de la izquierda tiene un "Porc." (porcentaje) al lado de cada importe; la columna de la derecha (TOTAL) no tiene porcentaje, solo P/G/C e Importe.
+- Si el despacho tiene una sola página/ítem, "items" tiene un solo elemento y el monto de "DEL ITEM" y el de "TOTAL" pueden coincidir — está bien, usá igual el de "DEL ITEM".
 
 {
   "numero_despacho": "número completo del despacho (ej: 012D-2024-000123)",
