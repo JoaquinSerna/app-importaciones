@@ -29,7 +29,7 @@ interface CostoSimple {
 }
 
 function esAntiDumping(concepto: string) {
-  return /anti-?dumping/i.test(concepto);
+  return /anti[\s-]*dumping/i.test(concepto);
 }
 
 interface DesgloseItem {

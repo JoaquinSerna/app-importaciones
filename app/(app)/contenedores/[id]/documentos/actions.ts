@@ -23,7 +23,7 @@ async function autoAnalizarCarpetasDelContenedor(contenedorId: string) {
 const BUCKET_DOCUMENTOS = "documentos";
 
 function esAntiDumping(concepto: string) {
-  return /anti-?dumping/i.test(concepto);
+  return /anti[\s-]*dumping/i.test(concepto);
 }
 
 // Palabras clave para buscar en concepto del costo de la carpeta.
@@ -31,7 +31,7 @@ function esAntiDumping(concepto: string) {
 // El anti-dumping se excluye de "derecho" porque se maneja aparte (ver
 // sincronizarAntiDumping): solo afecta a los SKUs marcados como paga_dumping.
 const TRIBUTO_KEYWORDS: { keywords: string[]; excluir?: string[] }[] = [
-  { keywords: ["derecho"], excluir: ["anti-dumping", "antidumping"] },
+  { keywords: ["derecho"], excluir: ["anti-dumping", "antidumping", "anti dumping", "antidump"] },
   { keywords: ["tasa estadística", "tasa estadistica", "estadísti"], excluir: ["máximo", "maximo"] },
   { keywords: ["iva adicional", "iva adic"] },
   { keywords: ["iva"], excluir: ["adicional"] },
