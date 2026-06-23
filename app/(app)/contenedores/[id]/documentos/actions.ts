@@ -54,17 +54,23 @@ async function sincronizarCostosRealesDeDespacho(
   const tributos = itemsCostosConfirmados.filter((i) => !esValorMercaderia(i.concepto));
   if (tributos.length === 0) return;
 
+  // Los tributos son % del valor de la mercadería (CIF/FOB), no del volumen —
+  // se prorratean por proporción de FOB entre las carpetas del contenedor.
   const { data: asignaciones } = await supabase
     .from("carpeta_contenedores")
-    .select("carpeta_id, cbm_asignado")
+    .select("carpeta_id, carpetas(fob_total_usd)")
     .eq("contenedor_id", contenedorId);
   if (!asignaciones || asignaciones.length === 0) return;
 
-  const cbmTotal = asignaciones.reduce((a, c) => a + (c.cbm_asignado ?? 0), 0);
+  const fobTotal = asignaciones.reduce(
+    (a, c) => a + ((c.carpetas as unknown as { fob_total_usd: number } | null)?.fob_total_usd ?? 0),
+    0
+  );
 
   for (const asignacion of asignaciones) {
-    const cbmProporcion = cbmTotal > 0
-      ? asignacion.cbm_asignado / cbmTotal
+    const fobCarpeta = (asignacion.carpetas as unknown as { fob_total_usd: number } | null)?.fob_total_usd ?? 0;
+    const fobProporcion = fobTotal > 0
+      ? fobCarpeta / fobTotal
       : 1 / asignaciones.length;
 
     const { data: costos } = await supabase
@@ -81,7 +87,7 @@ async function sincronizarCostosRealesDeDespacho(
         return matches && !excluded;
       });
       if (!item || item.monto_usd <= 0) continue;
-      const montoUsd = item.monto_usd * cbmProporcion;
+      const montoUsd = item.monto_usd * fobProporcion;
 
       const costo = costos.find((c) => {
         const lower = c.concepto.toLowerCase();

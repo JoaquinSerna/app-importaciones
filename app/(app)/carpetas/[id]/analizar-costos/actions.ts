@@ -124,18 +124,22 @@ export async function analizarCostosReales(carpetaId: string): Promise<Resultado
         advertencias.push(`No se encontró Factura logística extraída en el contenedor #${numeroCont}.`);
       }
 
-      // Factura despachante → prorateada (el SAF es solo adelanto, NO se suma)
+      // Factura despachante → prorateada por CBM, salvo honorarios y gastos
+      // bancarios que son % de FOB/CIF y se prorratean por FOB.
+      // (el SAF es solo adelanto, NO se suma)
+      const esFobBased = (concepto: string) => /honorario|bancari/i.test(concepto);
       const factDesp = docsContenedor.find(d => d.tipo === "factura_despachante");
       if (factDesp?.datos_extraidos) {
         const conceptos = factDesp.datos_extraidos.conceptos as { descripcion: string; monto: number; moneda: string }[] | undefined;
         if (conceptos?.length) {
           for (const c of conceptos) {
-            const monto = Number(c.monto ?? 0) * cbmProporcion;
+            const proporcion = esFobBased(c.descripcion) ? fobProporcion : cbmProporcion;
+            const monto = Number(c.monto ?? 0) * proporcion;
             if (monto > 0) {
               costosReales.push({
                 concepto: c.descripcion,
                 monto_usd: monto,
-                fuente: `Factura despachante${cbmProporcion < 0.999 ? ` (${(cbmProporcion * 100).toFixed(0)}%)` : ""}${sufijoContenedor}`,
+                fuente: `Factura despachante${proporcion < 0.999 ? ` (${(proporcion * 100).toFixed(0)}%, por ${esFobBased(c.descripcion) ? "FOB" : "CBM"})` : ""}${sufijoContenedor}`,
               });
             }
           }
@@ -147,7 +151,8 @@ export async function analizarCostosReales(carpetaId: string): Promise<Resultado
         advertencias.push(`No se encontró Factura del despachante extraída en el contenedor #${numeroCont}.`);
       }
 
-      // Despacho de aduana → impuestos reales en USD (prorateados por CBM), ya confirmados por el usuario
+      // Despacho de aduana → tributos reales en USD, prorateados por FOB
+      // (derechos/tasa/IVA/etc. son % del valor de la mercadería, no del volumen).
       const despacho = docsContenedor.find(d => d.tipo === "despacho_aduana");
       if (despacho?.datos_extraidos?.monedas_confirmadas) {
         const itemsConfirmados = despacho.datos_extraidos.items_costos_confirmados as
@@ -157,7 +162,7 @@ export async function analizarCostosReales(carpetaId: string): Promise<Resultado
           const esValorMercaderia = (c: string) => /fob|flete|seguro|cif/i.test(c);
           for (const item of itemsConfirmados) {
             if (esValorMercaderia(item.concepto)) continue;
-            const monto = item.monto_usd * cbmProporcion;
+            const monto = item.monto_usd * fobProporcion;
             if (monto > 0) costosReales.push({ concepto: item.concepto, monto_usd: monto, fuente: `Despacho de aduana${sufijoContenedor}` });
           }
         }
