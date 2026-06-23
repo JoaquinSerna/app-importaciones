@@ -3,6 +3,14 @@
 
 export type CriterioProrrateo = "cbm" | "peso" | "fob" | "unidades";
 
+// Conceptos que son % del valor de la mercadería (CIF/FOB) y por lo tanto se
+// prorratean por FOB; el resto se prorratea por volumen (CBM).
+const PATRONES_FOB = [/seguro/i, /derecho/i, /tasa estad/i, /\biva\b/i, /ganancia/i, /iibb/i, /honorario/i, /bancari/i];
+
+export function criterioPorConcepto(concepto: string): CriterioProrrateo {
+  return PATRONES_FOB.some((re) => re.test(concepto)) ? "fob" : "cbm";
+}
+
 export interface ItemProrrateable {
   id: string;
   cbm?: number;

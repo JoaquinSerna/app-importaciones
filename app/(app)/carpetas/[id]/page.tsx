@@ -70,8 +70,6 @@ export default async function CarpetaDetallePage({ params }: { params: { id: str
     cifEstimado = cascada.cif;
   }
 
-  const totalCostosUsd = costosList.reduce((acc, c) => acc + c.monto_estimado_usd, 0);
-
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -181,7 +179,11 @@ export default async function CarpetaDetallePage({ params }: { params: { id: str
             carpetaId={carpetaTyped.id}
             skus={skusList}
             ncms={(ncms ?? []) as NcmArancel[]}
-            totalCostosUsd={totalCostosUsd}
+            costos={costosList.map((c) => ({
+              concepto: c.concepto,
+              monto_estimado_usd: c.monto_estimado_usd,
+              monto_real_usd: c.monto_real_usd ?? null,
+            }))}
           />
         </TabsContent>
 

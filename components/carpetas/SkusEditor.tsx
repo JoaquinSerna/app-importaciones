@@ -28,7 +28,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { useToast } from "@/components/ui/use-toast";
-import { prorratear } from "@/lib/prorrateo";
+import { criterioPorConcepto, prorratear } from "@/lib/prorrateo";
 import type { NcmArancel, Sku } from "@/lib/types";
 
 function formatUsd(n: number) {
@@ -39,24 +39,54 @@ function vacio(): SkuInput {
   return { codigoSku: "", descripcion: "", cantidad: 0, precioUnitarioFobUsd: 0, pesoKg: undefined, cbm: undefined, ncmId: null };
 }
 
+interface CostoSimple {
+  concepto: string;
+  monto_estimado_usd: number;
+  monto_real_usd: number | null;
+}
+
 interface Props {
   carpetaId: string;
   skus: Sku[];
   ncms: NcmArancel[];
-  totalCostosUsd: number;
+  costos: CostoSimple[];
 }
 
-export function SkusEditor({ carpetaId, skus, ncms, totalCostosUsd }: Props) {
+export function SkusEditor({ carpetaId, skus, ncms, costos }: Props) {
   const { toast } = useToast();
   const [isPending, startTransition] = useTransition();
   const [nuevo, setNuevo] = useState<SkuInput>(vacio());
   const [mostrandoNuevo, setMostrandoNuevo] = useState(false);
 
-  const prorrateo = useMemo(() => {
-    const items = skus.map((s) => ({ id: s.id, cbm: s.cbm ?? 0 }));
-    const asignaciones = prorratear(totalCostosUsd, items, "cbm");
-    return new Map(asignaciones.map((a) => [a.id, a.montoAsignado]));
-  }, [skus, totalCostosUsd]);
+  // Cada línea de costo se prorratea entre SKUs según su base correcta:
+  // FOB para impuestos/seguro/honorarios (% del valor de la mercadería),
+  // CBM para flete/THC/etc. (escalan con el volumen).
+  const { estimadoPorSku, realPorSku } = useMemo(() => {
+    const estimado = new Map<string, number>();
+    const real = new Map<string, number>();
+    skus.forEach((s) => { estimado.set(s.id, 0); real.set(s.id, 0); });
+
+    const items = skus.map((s) => ({
+      id: s.id,
+      cbm: s.cbm ?? 0,
+      fob: (s.cantidad ?? 0) * (s.precio_unitario_fob_usd ?? 0),
+    }));
+
+    for (const costo of costos) {
+      const criterio = criterioPorConcepto(costo.concepto);
+      for (const a of prorratear(costo.monto_estimado_usd, items, criterio)) {
+        estimado.set(a.id, (estimado.get(a.id) ?? 0) + a.montoAsignado);
+      }
+      if (costo.monto_real_usd != null) {
+        for (const a of prorratear(costo.monto_real_usd, items, criterio)) {
+          real.set(a.id, (real.get(a.id) ?? 0) + a.montoAsignado);
+        }
+      }
+    }
+    return { estimadoPorSku: estimado, realPorSku: real };
+  }, [skus, costos]);
+
+  const hayReal = costos.some((c) => c.monto_real_usd != null);
 
   const ncmsDistintos = new Set(skus.map((s) => s.ncm_id).filter(Boolean)).size;
 
@@ -164,7 +194,7 @@ export function SkusEditor({ carpetaId, skus, ncms, totalCostosUsd }: Props) {
                   </SelectContent>
                 </Select>
               </TableCell>
-              <TableCell className="text-right">{formatUsd(prorrateo.get(sku.id) ?? 0)}</TableCell>
+              <TableCell className="text-right">{formatUsd(estimadoPorSku.get(sku.id) ?? 0)}</TableCell>
               <TableCell>
                 <Button size="sm" variant="ghost" onClick={() => handleEliminar(sku.id)} disabled={isPending}>
                   <X className="h-3.5 w-3.5 text-destructive" />
@@ -181,6 +211,49 @@ export function SkusEditor({ carpetaId, skus, ncms, totalCostosUsd }: Props) {
           )}
         </TableBody>
       </Table>
+
+      {skus.length > 0 && (
+        <div className="space-y-2">
+          <h3 className="text-sm font-medium">Costo por unidad (landed cost)</h3>
+          <p className="text-xs text-muted-foreground">
+            FOB unitario + costos de la carpeta prorrateados por FOB (impuestos, seguro, honorarios) o por CBM
+            (flete, THC, etc.), divididos por la cantidad de cada SKU.
+          </p>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>SKU</TableHead>
+                <TableHead className="text-right">Cantidad</TableHead>
+                <TableHead className="text-right">FOB unit.</TableHead>
+                <TableHead className="text-right">Costos asignados (est.)</TableHead>
+                {hayReal && <TableHead className="text-right">Costos asignados (real)</TableHead>}
+                <TableHead className="text-right">Costo unitario (est.)</TableHead>
+                {hayReal && <TableHead className="text-right">Costo unitario (real)</TableHead>}
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {skus.map((sku) => {
+                const cantidad = sku.cantidad || 1;
+                const asignadoEst = estimadoPorSku.get(sku.id) ?? 0;
+                const asignadoReal = realPorSku.get(sku.id) ?? 0;
+                const unitarioEst = sku.precio_unitario_fob_usd + asignadoEst / cantidad;
+                const unitarioReal = sku.precio_unitario_fob_usd + asignadoReal / cantidad;
+                return (
+                  <TableRow key={sku.id}>
+                    <TableCell>{sku.codigo_sku ?? sku.descripcion ?? "-"}</TableCell>
+                    <TableCell className="text-right">{sku.cantidad}</TableCell>
+                    <TableCell className="text-right">{formatUsd(sku.precio_unitario_fob_usd)}</TableCell>
+                    <TableCell className="text-right">{formatUsd(asignadoEst)}</TableCell>
+                    {hayReal && <TableCell className="text-right">{formatUsd(asignadoReal)}</TableCell>}
+                    <TableCell className="text-right font-medium">{formatUsd(unitarioEst)}</TableCell>
+                    {hayReal && <TableCell className="text-right font-medium">{formatUsd(unitarioReal)}</TableCell>}
+                  </TableRow>
+                );
+              })}
+            </TableBody>
+          </Table>
+        </div>
+      )}
 
       {mostrandoNuevo ? (
         <div className="rounded-lg border p-3 space-y-2">
