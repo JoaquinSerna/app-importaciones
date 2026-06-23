@@ -5,11 +5,11 @@ import { BlEditor } from "@/components/carpetas/BlEditor";
 import { ContenedoresMultiSelector } from "@/components/carpetas/ContenedoresMultiSelector";
 import { CostosTable } from "@/components/carpetas/CostosTable";
 import { Documentos } from "@/components/carpetas/Documentos";
+import { EstadoCarpetaSelector } from "@/components/carpetas/EstadoCarpetaSelector";
 import { SeccionComparacion } from "@/components/carpetas/SeccionComparacion";
 import { SkusEditor } from "@/components/carpetas/SkusEditor";
 import { Timeline } from "@/components/carpetas/Timeline";
 import { TipoImportacionSelector } from "@/components/carpetas/TipoImportacionSelector";
-import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { calcularCascada } from "@/lib/calculadora-costos";
@@ -77,9 +77,7 @@ export default async function CarpetaDetallePage({ params }: { params: { id: str
           <h1 className="text-2xl font-semibold">{carpetaTyped.numero_carpeta}</h1>
           <p className="text-muted-foreground">{carpetaTyped.proveedores?.nombre ?? "Sin proveedor"}</p>
         </div>
-        <Badge variant="secondary" className="capitalize">
-          {carpetaTyped.estado.replace("_", " ")}
-        </Badge>
+        <EstadoCarpetaSelector carpetaId={carpetaTyped.id} estadoActual={carpetaTyped.estado} />
       </div>
 
       <Tabs defaultValue="resumen">

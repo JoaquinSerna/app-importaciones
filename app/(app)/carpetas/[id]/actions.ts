@@ -2,7 +2,51 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
-import type { CategoriaCosto } from "@/lib/types";
+import type { CategoriaCosto, EstadoCarpeta } from "@/lib/types";
+
+const ORDEN_ESTADO: EstadoCarpeta[] = ["simulacion", "pre_embarque", "en_transito", "en_aduana", "finalizada"];
+
+// Sube el estado de la carpeta al completar hitos del Timeline, pero nunca lo
+// retrocede (si el usuario ya lo marcó manualmente más adelante, no se toca).
+async function avanzarEstadoSegunFecha(
+  supabase: ReturnType<typeof createClient>,
+  carpetaId: string,
+  campo: string,
+  valor: string | null
+) {
+  if (!valor) return;
+  const minimoPorCampo: Record<string, EstadoCarpeta> = {
+    fecha_pago_anticipo: "pre_embarque",
+    fecha_pago_saldo: "pre_embarque",
+    fecha_embarque: "en_transito",
+    fecha_arribo_real: "en_aduana",
+    fecha_liberacion: "en_aduana",
+    fecha_llegada_oficina: "finalizada",
+  };
+  const minimo = minimoPorCampo[campo];
+  if (!minimo) return;
+
+  const { data: carpeta } = await supabase.from("carpetas").select("estado").eq("id", carpetaId).single();
+  if (!carpeta) return;
+
+  const actual = ORDEN_ESTADO.indexOf(carpeta.estado as EstadoCarpeta);
+  const objetivo = ORDEN_ESTADO.indexOf(minimo);
+  if (objetivo > actual) {
+    await supabase.from("carpetas").update({ estado: minimo }).eq("id", carpetaId);
+  }
+}
+
+export async function actualizarEstadoCarpeta(carpetaId: string, estado: EstadoCarpeta): Promise<{ error?: string }> {
+  const supabase = createClient();
+  const { error } = await supabase.from("carpetas").update({ estado }).eq("id", carpetaId);
+  if (error) {
+    console.error("actualizarEstadoCarpeta", error);
+    return { error: error.message };
+  }
+  revalidatePath(`/carpetas/${carpetaId}`);
+  revalidatePath("/dashboard");
+  return {};
+}
 
 export async function actualizarBlCarpeta(carpetaId: string, blNumber: string): Promise<{ error?: string }> {
   const supabase = createClient();
@@ -79,6 +123,7 @@ export async function actualizarFechaCarpeta(
     console.error("actualizarFechaCarpeta", error);
     return { error: error.message };
   }
+  await avanzarEstadoSegunFecha(supabase, carpetaId, campo, valor);
   revalidatePath(`/carpetas/${carpetaId}`);
   return {};
 }
@@ -186,6 +231,7 @@ export async function asignarContenedores(
     console.error("asignarContenedores: update fechas", error);
     return { error: error.message };
   }
+  await avanzarEstadoSegunFecha(supabase, carpetaId, "fecha_embarque", fecha_embarque);
 
   revalidatePath(`/carpetas/${carpetaId}`);
   revalidatePath("/contenedores");
