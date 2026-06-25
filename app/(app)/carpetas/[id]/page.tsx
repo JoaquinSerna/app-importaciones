@@ -56,6 +56,12 @@ export default async function CarpetaDetallePage({ params }: { params: { id: str
 
   const skusList = (skus ?? []) as Sku[];
   const costosList = (costos ?? []) as Costo[];
+
+  const skuIds = skusList.map((s) => s.id);
+  const { data: costosSku } = skuIds.length > 0
+    ? await supabase.from("costos_sku").select("sku_id, concepto, monto_real_usd").in("sku_id", skuIds)
+    : { data: [] };
+  const costosSkuList = (costosSku ?? []) as { sku_id: string; concepto: string; monto_real_usd: number }[];
   const carpetaTyped = carpeta as Carpeta & { proveedores?: { nombre: string; foto_url: string | null } | null };
 
   const fotoUrlOriginal = carpetaTyped.proveedores?.foto_url ?? null;
@@ -185,6 +191,7 @@ export default async function CarpetaDetallePage({ params }: { params: { id: str
               monto_real_usd: c.monto_real_usd ?? null,
               ncm_codigo: c.ncm_codigo ?? null,
             }))}
+            costosSku={costosSkuList}
           />
         </TabsContent>
 

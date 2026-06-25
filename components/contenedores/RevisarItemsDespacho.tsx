@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/components/ui/use-toast";
+import { normalizarNcm8 } from "@/lib/ncm-match";
 
 interface NcmPorCarpeta {
   ncmCodigo: string;
@@ -27,12 +28,6 @@ interface Props {
 
 function fmt(n: number) {
   return n.toLocaleString("es-AR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-}
-
-// Compara NCM ignorando puntos/espacios — el despacho a veces los escribe
-// distinto que como están guardados en NCMs (ej: "8426.11.00" vs "84261100").
-function normalizarNcm(ncm: string) {
-  return ncm.replace(/[^0-9]/g, "");
 }
 
 export function RevisarItemsDespacho({ documentoId, contenedorId, itemsIniciales, ncmPorCarpeta }: Props) {
@@ -86,9 +81,9 @@ export function RevisarItemsDespacho({ documentoId, contenedorId, itemsIniciales
   }
 
   function carpetaParaNcm(ncm: string): NcmPorCarpeta | null {
-    const norm = normalizarNcm(ncm).slice(0, 8);
+    const norm = normalizarNcm8(ncm);
     if (!norm) return null;
-    return ncmPorCarpeta.find((n) => normalizarNcm(n.ncmCodigo).slice(0, 8) === norm) ?? null;
+    return ncmPorCarpeta.find((n) => normalizarNcm8(n.ncmCodigo) === norm) ?? null;
   }
 
   function handleConfirmar() {

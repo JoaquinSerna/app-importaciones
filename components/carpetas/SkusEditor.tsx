@@ -15,6 +15,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { useToast } from "@/components/ui/use-toast";
+import { familiaTributo } from "@/lib/ncm-match";
 import { criterioPorConcepto, prorratear } from "@/lib/prorrateo";
 import type { NcmArancel, Sku } from "@/lib/types";
 
@@ -38,14 +39,21 @@ interface DesgloseItem {
   real: number;
 }
 
+interface CostoSku {
+  sku_id: string;
+  concepto: string;
+  monto_real_usd: number;
+}
+
 interface Props {
   carpetaId: string;
   skus: Sku[];
   ncms: NcmArancel[];
   costos: CostoSimple[];
+  costosSku?: CostoSku[];
 }
 
-export function SkusEditor({ carpetaId, skus, costos }: Props) {
+export function SkusEditor({ carpetaId, skus, costos, costosSku = [] }: Props) {
   const { toast } = useToast();
   const [isPending, startTransition] = useTransition();
   const [expandidos, setExpandidos] = useState<Set<string>>(new Set());
@@ -55,6 +63,12 @@ export function SkusEditor({ carpetaId, skus, costos }: Props) {
   // CBM para flete/THC/etc. (escalan con el volumen). El anti-dumping es un
   // caso especial: solo se reparte (por FOB) entre los SKUs marcados como
   // "paga dumping" — nunca entre todos.
+  //
+  // El "estimado" siempre se prorratea de forma uniforme (es una simulación,
+  // no tiene desglose por NCM). El "real" usa costos_sku cuando existe —
+  // viene de matchear cada ítem de la DI por NCM contra los SKUs, así que ya
+  // está repartido con precisión y no hace falta (ni conviene) volver a
+  // prorratearlo de forma uniforme entre todos los SKUs de la carpeta.
   const { estimadoPorSku, realPorSku, desglosePorSku } = useMemo(() => {
     const estimado = new Map<string, number>();
     const real = new Map<string, number>();
@@ -62,8 +76,14 @@ export function SkusEditor({ carpetaId, skus, costos }: Props) {
     skus.forEach((s) => { estimado.set(s.id, 0); real.set(s.id, 0); desglose.set(s.id, []); });
 
     for (const costo of costos) {
+      const familia = familiaTributo(costo.concepto);
+      const costoSkuDeEstaFamilia = familia
+        ? costosSku.filter((cs) => familiaTributo(cs.concepto) === familia)
+        : [];
+      const tieneRealPorSku = costoSkuDeEstaFamilia.length > 0;
+
       const esDumping = esAntiDumping(costo.concepto);
-      const skusObjetivo = esDumping ? skus.filter((s) => s.paga_dumping) : skus;
+      const skusObjetivo = esDumping && !tieneRealPorSku ? skus.filter((s) => s.paga_dumping) : skus;
       if (skusObjetivo.length === 0) continue;
 
       const items = skusObjetivo.map((s) => ({
@@ -74,7 +94,11 @@ export function SkusEditor({ carpetaId, skus, costos }: Props) {
       const criterio = esDumping ? "fob" : criterioPorConcepto(costo.concepto);
 
       const asigEst = prorratear(costo.monto_estimado_usd, items, criterio);
-      const asigReal = costo.monto_real_usd != null ? prorratear(costo.monto_real_usd, items, criterio) : [];
+      const asigReal = tieneRealPorSku
+        ? []
+        : costo.monto_real_usd != null
+          ? prorratear(costo.monto_real_usd, items, criterio)
+          : [];
 
       for (const a of asigEst) {
         estimado.set(a.id, (estimado.get(a.id) ?? 0) + a.montoAsignado);
@@ -82,17 +106,28 @@ export function SkusEditor({ carpetaId, skus, costos }: Props) {
       for (const a of asigReal) {
         real.set(a.id, (real.get(a.id) ?? 0) + a.montoAsignado);
       }
+      if (tieneRealPorSku) {
+        for (const cs of costoSkuDeEstaFamilia) {
+          real.set(cs.sku_id, (real.get(cs.sku_id) ?? 0) + cs.monto_real_usd);
+        }
+      }
 
-      const idsConMonto = new Set([...asigEst, ...asigReal].map((a) => a.id));
+      const idsConMonto = new Set([
+        ...asigEst.map((a) => a.id),
+        ...asigReal.map((a) => a.id),
+        ...costoSkuDeEstaFamilia.map((cs) => cs.sku_id),
+      ]);
       for (const id of Array.from(idsConMonto)) {
         const est = asigEst.find((a) => a.id === id)?.montoAsignado ?? 0;
-        const rea = asigReal.find((a) => a.id === id)?.montoAsignado ?? 0;
+        const rea = tieneRealPorSku
+          ? costoSkuDeEstaFamilia.filter((cs) => cs.sku_id === id).reduce((a, cs) => a + cs.monto_real_usd, 0)
+          : asigReal.find((a) => a.id === id)?.montoAsignado ?? 0;
         if (est <= 0 && rea <= 0) continue;
         desglose.get(id)?.push({ concepto: costo.concepto, estimado: est, real: rea });
       }
     }
     return { estimadoPorSku: estimado, realPorSku: real, desglosePorSku: desglose };
-  }, [skus, costos]);
+  }, [skus, costos, costosSku]);
 
   const hayReal = costos.some((c) => c.monto_real_usd != null);
 

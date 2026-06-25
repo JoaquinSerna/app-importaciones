@@ -11,7 +11,7 @@ Analizá esta Proforma Invoice y extraé la siguiente información en JSON:
   "fecha": "fecha del documento (YYYY-MM-DD)",
   "moneda": "USD/EUR/etc",
   "fob_total": número total FOB,
-  "items": [{ "descripcion": "...", "cantidad": número, "precio_unitario": número, "total": número }],
+  "items": [{ "descripcion": "descripción tal cual figura en el documento (puede estar en inglés/chino/etc, no la traduzcas)", "descripcion_es": "traducción corta y clara al español del producto, sin código de producto ni medidas de empaque (ej: 'Guante de cuero AB grade con logo serigrafiado')", "cantidad": número, "precio_unitario": número, "total": número }],
   "notas": "observaciones importantes si hay"
 }
 Solo devolvé el JSON, sin texto adicional.`,
@@ -26,7 +26,7 @@ Analizá este Packing List y extraé la siguiente información en JSON:
   "peso_bruto_total_kg": número,
   "peso_neto_total_kg": número,
   "bultos_total": número,
-  "items": [{ "descripcion": "...", "cantidad": número, "cbm": número, "peso_kg": número }]
+  "items": [{ "descripcion": "descripción tal cual figura en el documento (no la traduzcas)", "descripcion_es": "traducción corta y clara al español del producto", "cantidad": número, "cbm": número, "peso_kg": número }]
 }
 Solo devolvé el JSON, sin texto adicional.`,
 
@@ -39,7 +39,7 @@ Analizá esta Commercial Invoice y extraé la siguiente información en JSON:
   "fecha": "YYYY-MM-DD",
   "moneda": "USD/EUR/etc",
   "fob_total": número total FOB,
-  "items": [{ "descripcion": "...", "cantidad": número, "precio_unitario": número, "total": número }],
+  "items": [{ "descripcion": "descripción tal cual figura en el documento (no la traduzcas)", "descripcion_es": "traducción corta y clara al español del producto", "cantidad": número, "precio_unitario": número, "total": número }],
   "condiciones_pago": "texto de condiciones si aparece"
 }
 Solo devolvé el JSON, sin texto adicional.`,

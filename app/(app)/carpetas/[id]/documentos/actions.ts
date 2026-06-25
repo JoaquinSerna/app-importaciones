@@ -67,7 +67,7 @@ async function sincronizarDescripcionesDeUnDocumento(
   supabase: ReturnType<typeof createClient>,
   carpetaId: string,
   tipo: "proforma_invoice" | "packing_list",
-  skus: { id: string; descripcion: string | null; ncm_aranceles: { codigo_ncm: string } | null }[]
+  skus: { id: string; descripcion: string | null; cantidad: number | null; ncm_aranceles: { codigo_ncm: string } | null }[]
 ): Promise<{ actualizados: number; itemsEncontrados: number }> {
   const { data: doc } = await supabase
     .from("documentos")
@@ -81,9 +81,12 @@ async function sincronizarDescripcionesDeUnDocumento(
 
   const items = (doc?.datos_extraidos?.items ?? []) as {
     descripcion?: string;
+    descripcion_es?: string;
     cantidad?: number;
     precio_unitario?: number;
     total?: number;
+    cbm?: number;
+    peso_kg?: number;
   }[];
   if (items.length === 0 || items.length !== skus.length) {
     return { actualizados: 0, itemsEncontrados: items.length };
@@ -93,21 +96,42 @@ async function sincronizarDescripcionesDeUnDocumento(
   for (let i = 0; i < skus.length; i++) {
     const sku = skus[i];
     const item = items[i];
-    const descripcionNueva = item?.descripcion?.trim();
-    if (!descripcionNueva) continue;
 
-    const codigoNcm = sku.ncm_aranceles?.codigo_ncm ?? null;
-    const esPlaceholder = !sku.descripcion || sku.descripcion === codigoNcm;
-    if (!esPlaceholder) continue;
+    // El Packing List es la única fuente de CBM/peso por SKU — a diferencia de
+    // descripcion/cantidad/FOB, esto se sincroniza siempre (no solo en
+    // placeholders) porque no hay otro lugar donde el usuario los cargue.
+    if (tipo === "packing_list" && (item?.cbm || item?.peso_kg)) {
+      const updateCbmPeso: Record<string, unknown> = {};
+      if (item.cbm) updateCbmPeso.cbm = item.cbm;
+      if (item.peso_kg) updateCbmPeso.peso_kg = item.peso_kg;
+      await supabase.from("skus").update(updateCbmPeso).eq("id", sku.id);
+    }
 
+    // La cantidad/precio unitario se sincronizan en su propio criterio,
+    // INDEPENDIENTE del de la descripción: al crear la carpeta desde la
+    // simulación, todo SKU arranca con cantidad=1 y precio_unitario_fob_usd
+    // = FOB total de la línea (ver crearCarpetaDesdeSimulacion). Si seguimos
+    // en ese estado "1 unidad = el total", lo corregimos con la cantidad real
+    // del documento aunque la descripción ya se haya sincronizado antes (si
+    // dependiera del mismo gate que la descripción, una vez que esta dejara
+    // de ser placeholder la cantidad quedaría en 1 para siempre).
     const cantidad = item.cantidad && item.cantidad > 0 ? item.cantidad : undefined;
     const montoTotal = item.total ?? (cantidad ? cantidad * (item.precio_unitario ?? 0) : undefined);
-    const update: Record<string, unknown> = { descripcion: descripcionNueva };
-    if (cantidad && montoTotal) {
+    const cantidadEsPlaceholder = sku.cantidad == null || sku.cantidad === 1;
+    const update: Record<string, unknown> = {};
+    if (cantidad && montoTotal && cantidadEsPlaceholder) {
       update.cantidad = cantidad;
       update.precio_unitario_fob_usd = montoTotal / cantidad;
     }
 
+    const descripcionNueva = item?.descripcion_es?.trim() || item?.descripcion?.trim();
+    const codigoNcm = sku.ncm_aranceles?.codigo_ncm ?? null;
+    const descripcionEsPlaceholder = !sku.descripcion || sku.descripcion === codigoNcm;
+    if (descripcionNueva && descripcionEsPlaceholder) {
+      update.descripcion = descripcionNueva;
+    }
+
+    if (Object.keys(update).length === 0) continue;
     await supabase.from("skus").update(update).eq("id", sku.id);
     actualizados++;
   }
@@ -120,7 +144,7 @@ async function sincronizarDescripcionesSkusDesdeDocumento(carpetaId: string, tip
 
   const { data: skus } = await supabase
     .from("skus")
-    .select("id, descripcion, created_at, ncm_aranceles(codigo_ncm)")
+    .select("id, descripcion, cantidad, created_at, ncm_aranceles(codigo_ncm)")
     .eq("carpeta_id", carpetaId)
     .order("created_at", { ascending: true });
   if (!skus || skus.length === 0) return;
@@ -129,7 +153,7 @@ async function sincronizarDescripcionesSkusDesdeDocumento(carpetaId: string, tip
     supabase,
     carpetaId,
     tipo,
-    skus as unknown as { id: string; descripcion: string | null; ncm_aranceles: { codigo_ncm: string } | null }[]
+    skus as unknown as { id: string; descripcion: string | null; cantidad: number | null; ncm_aranceles: { codigo_ncm: string } | null }[]
   );
 }
 
@@ -163,6 +187,7 @@ async function agruparDescripcionesConIA(
 
   const items = (doc?.datos_extraidos?.items ?? []) as {
     descripcion?: string;
+    descripcion_es?: string;
     cantidad?: number;
     precio_unitario?: number;
     total?: number;
@@ -171,7 +196,7 @@ async function agruparDescripcionesConIA(
 
   const itemsConMonto = items.map((it, i) => ({
     index: i,
-    descripcion: it.descripcion ?? `Item ${i + 1}`,
+    descripcion: it.descripcion_es ?? it.descripcion ?? `Item ${i + 1}`,
     monto: it.total ?? (it.cantidad ?? 0) * (it.precio_unitario ?? 0),
     cantidad: it.cantidad ?? 1,
   }));
