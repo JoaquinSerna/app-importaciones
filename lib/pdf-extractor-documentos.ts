@@ -202,13 +202,27 @@ ATENCIÓN — esto es la causa más común de error, y NO es que estén en bloqu
   - A LA IZQUIERDA del nombre del concepto, con un "Porc." (porcentaje) al lado: es el monto "DEL ITEM" — SOLO de este ítem puntual. ESTE es el que tenés que usar.
   - A LA DERECHA del nombre del concepto, sin porcentaje, bajo la columna "TOTAL": es el ACUMULADO de todos los ítems del despacho hasta ese punto (va creciendo ítem a ítem; en el último ítem coincide con el total general del despacho). NUNCA uses este número — ni para "items" ni para "valores_generales" — da resultados mucho más altos que la realidad, y si lo confundís con el monto de otro concepto el desglose completo queda mal.
 
-Ejemplo real de una fila tal como aparece en el PDF (un despacho con varios ítems ya liquidados antes que este):
-  "20,00  P  1.984,39  ( 010 ) DERECHOS IMPORTACION  P  13.422,89"
-  → "Porc." 20,00 e importe 1.984,39 están A LA IZQUIERDA del nombre "DERECHOS IMPORTACION": ESE es el monto de este ítem → { "concepto": "Derechos de importación", "monto": 1984.39 }.
-  → El 13.422,89 que aparece DESPUÉS del nombre del concepto es el acumulado de TODOS los ítems anteriores + este: IGNORALO COMPLETAMENTE, no lo asignes a ningún concepto (ni a este ítem ni a otro).
-Aplicá esta misma regla a TODAS las filas de TODOS los ítems: de cada fila, quedate solo con el número que está ANTES del nombre del concepto (al lado del Porc.); el número que está DESPUÉS del nombre del concepto se descarta siempre, sin excepción.
-- Cuando una fila no tenga "Porc." visible (ej. "TASA ESTAD MONT MAX", que es un tope fijo en vez de un %), el monto "DEL ITEM" sigue siendo el que aparece pegado al nombre del concepto en esa misma línea, antes de cualquier otro número que venga después.
-- Cada concepto (010, 011/061, 415, 017, etc.) aparece COMO MÁXIMO UNA VEZ por ítem en la lista "conceptos" de ese ítem. Si te parece que el mismo concepto se repite con dos montos muy distintos dentro de un mismo ítem, es señal de que tomaste el "DEL ITEM" una vez y el "TOTAL" acumulado la otra — quedate solo con el monto "DEL ITEM" y descartá el otro.
+Ejemplo real COMPLETO de la tabla de un ítem tal como aparece en el PDF (todas las filas de "Conceptos" de un mismo ítem, una debajo de la otra):
+  "        20,00  P     1.984,39  ( 010 ) DERECHOS IMPORTACION        P        13.422,89"
+  "                                ( 011 ) TASA DE ESTADISTICA         P           729,71"
+  "                                ( 017 ) DER. ANTI-DUMPING 2         P        13.272,96"
+  "  0,00  P       180,00          ( 061 ) TASA ESTAD MONT MAX         P           720,00"
+  "        21,00  P     2.538,14  ( 415 ) I.V.A.                      P        18.717,10"
+  "                                ( 500 ) ARANCEL SIM IMPO            P            10,00"
+  "PAGADO                4.702,53"
+Para este ítem en particular, el resultado CORRECTO es:
+  { "concepto": "Derechos de importación", "monto": 1984.39 }   ← el número antes del nombre, en SU MISMA fila
+  { "concepto": "Tasa estadística", "monto": 180 }              ← viene de la fila "(061) TASA ESTAD MONT MAX", que SÍ tiene número antes del nombre (180,00); la fila "(011) TASA DE ESTADISTICA" de arriba NO tiene ningún número antes del nombre en este ítem, así que no aporta nada
+  { "concepto": "IVA", "monto": 2538.14 }                       ← el número antes del nombre, en SU MISMA fila
+  (NO se incluye "Derechos anti-dumping": la fila "(017) DER. ANTI-DUMPING 2" no tiene ningún número antes del nombre en este ítem — está vacía, solo tiene el acumulado 13.272,96 después — así que este ítem no paga antidumping y el concepto se omite directamente, NUNCA se le asigna el 13.272,96 ni ningún otro número de una fila vecina)
+  (El "(500) ARANCEL SIM IMPO" tampoco tiene número antes del nombre en este ítem — se omite igual)
+  Chequeo: 1984.39 + 180 + 2538.14 = 4702.53 = el "PAGADO" de este ítem. Si lo que extrajiste no suma el "PAGADO" de ese ítem, releé las filas: seguramente moviste un número a la fila de al lado.
+
+Reglas generales que se desprenden de este ejemplo, aplicalas a TODAS las filas de TODOS los ítems:
+- De cada fila, quedate SOLO con el número que está ANTES del nombre del concepto, en ESA MISMA fila. El número que aparece DESPUÉS del nombre (la columna "TOTAL") se descarta siempre, sin excepción — nunca lo uses ni para este concepto ni para ningún otro.
+- Si una fila de concepto NO tiene ningún número antes del nombre (la celda aparece vacía o en blanco), ese concepto NO aportó nada en este ítem: OMITILO de la lista de "conceptos" de este ítem. No le asignes el número de la fila de arriba, de abajo, ni el acumulado de la derecha. La mayoría de los ítems van a tener antidumping, IVA adicional, ganancias, etc. en blanco — eso es lo normal, no un error a corregir inventando un número.
+- Cada concepto (010, 011/061, 415, 017, etc.) aparece COMO MÁXIMO UNA VEZ por ítem en la lista "conceptos" de ese ítem.
+- Si el ítem tiene una fila "PAGADO" con el total de ESE ítem, usala para verificar: la suma de los montos "DEL ITEM" que extrajiste para ese ítem tiene que coincidir con el "PAGADO" de esa misma fila (no con el "PAGADO"/"CANAL ASIGNADO" que aparece más abajo asociado a "GARANTIZADO"/"A COBRAR", que es el acumulado de todo el despacho).
 - Si el despacho tiene una sola página/ítem, el monto "DEL ITEM" y el "TOTAL" pueden coincidir — está bien, usá igual el de la izquierda.
 
 {
