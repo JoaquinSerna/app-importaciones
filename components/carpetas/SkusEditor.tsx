@@ -244,7 +244,20 @@ export function SkusEditor({ carpetaId, skus, costos, costosSku = [] }: Props) {
                         </Button>
                       )}
                     </TableCell>
-                    <TableCell>{sku.codigo_sku ?? sku.descripcion ?? "-"}</TableCell>
+                    <TableCell>
+                      {sku.descripcion_es ? (
+                        <div>
+                          <div>{sku.descripcion_es}</div>
+                          {(sku.codigo_sku || sku.descripcion) && (
+                            <div className="text-xs text-muted-foreground">
+                              {[sku.codigo_sku, sku.descripcion].filter(Boolean).join(" — ")}
+                            </div>
+                          )}
+                        </div>
+                      ) : (
+                        sku.codigo_sku ?? sku.descripcion ?? "-"
+                      )}
+                    </TableCell>
                     <TableCell className="text-center">
                       <input
                         type="checkbox"

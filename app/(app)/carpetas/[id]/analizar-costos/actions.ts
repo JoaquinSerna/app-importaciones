@@ -4,6 +4,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { revalidatePath } from "next/cache";
 
 import { createClient } from "@/lib/supabase/server";
+import { esCreditoFiscal } from "@/lib/prorrateo";
 
 export interface ItemPropuesto {
   concepto_real: string;
@@ -13,6 +14,7 @@ export interface ItemPropuesto {
   monto_simulado_usd: number | null;
   es_nuevo: boolean;
   confidence: number;
+  es_credito_fiscal: boolean;
 }
 
 export interface ResultadoAnalisis {
@@ -61,7 +63,7 @@ export async function analizarCostosReales(carpetaId: string): Promise<Resultado
     .select("contenedor_id, cbm_asignado, contenedores(numero_contenedor)")
     .eq("carpeta_id", carpetaId);
 
-  const costosReales: { concepto: string; monto_usd: number; fuente: string }[] = [];
+  const costosReales: { concepto: string; monto_usd: number; fuente: string; es_credito_fiscal: boolean }[] = [];
   let cbmProporcionPromedio = 1;
 
   if (!asignaciones || asignaciones.length === 0) {
@@ -113,12 +115,13 @@ export async function analizarCostosReales(carpetaId: string): Promise<Resultado
                 concepto: c.descripcion,
                 monto_usd: monto,
                 fuente: `Factura logística${proporcion < 0.999 ? ` (${(proporcion * 100).toFixed(0)}% del contenedor, por ${esSeguro(c.descripcion) ? "FOB" : "CBM"})` : ""}${sufijoContenedor}`,
+                es_credito_fiscal: esCreditoFiscal(c.descripcion),
               });
             }
           }
         } else {
           const total = Number(factLog.datos_extraidos.monto_total ?? 0) * cbmProporcion;
-          if (total > 0) costosReales.push({ concepto: "Gastos logísticos", monto_usd: total, fuente: `Factura logística${sufijoContenedor}` });
+          if (total > 0) costosReales.push({ concepto: "Gastos logísticos", monto_usd: total, fuente: `Factura logística${sufijoContenedor}`, es_credito_fiscal: false });
         }
       } else {
         advertencias.push(`No se encontró Factura logística extraída en el contenedor #${numeroCont}.`);
@@ -140,12 +143,13 @@ export async function analizarCostosReales(carpetaId: string): Promise<Resultado
                 concepto: c.descripcion,
                 monto_usd: monto,
                 fuente: `Factura despachante${proporcion < 0.999 ? ` (${(proporcion * 100).toFixed(0)}%, por ${esFobBased(c.descripcion) ? "FOB" : "CBM"})` : ""}${sufijoContenedor}`,
+                es_credito_fiscal: esCreditoFiscal(c.descripcion),
               });
             }
           }
         } else {
           const total = Number(factDesp.datos_extraidos.monto_total ?? 0) * cbmProporcion;
-          if (total > 0) costosReales.push({ concepto: "Honorarios y gastos despachante", monto_usd: total, fuente: `Factura despachante${sufijoContenedor}` });
+          if (total > 0) costosReales.push({ concepto: "Honorarios y gastos despachante", monto_usd: total, fuente: `Factura despachante${sufijoContenedor}`, es_credito_fiscal: false });
         }
       } else {
         advertencias.push(`No se encontró Factura del despachante extraída en el contenedor #${numeroCont}.`);
@@ -168,7 +172,7 @@ export async function analizarCostosReales(carpetaId: string): Promise<Resultado
             // en la tabla "costos" directamente al confirmar el despacho.
             if (esValorMercaderia(item.concepto) || esAntiDumping(item.concepto)) continue;
             const monto = item.monto_usd * fobProporcion;
-            if (monto > 0) costosReales.push({ concepto: item.concepto, monto_usd: monto, fuente: `Despacho de aduana${sufijoContenedor}` });
+            if (monto > 0) costosReales.push({ concepto: item.concepto, monto_usd: monto, fuente: `Despacho de aduana${sufijoContenedor}`, es_credito_fiscal: false });
           }
         }
       } else if (despacho) {
@@ -185,7 +189,7 @@ export async function analizarCostosReales(carpetaId: string): Promise<Resultado
   const proforma = (docsCarpeta ?? []).find(d => d.tipo === "proforma_invoice");
   if (proforma?.datos_extraidos) {
     const fob = Number(proforma.datos_extraidos.fob_total ?? 0);
-    if (fob > 0) costosReales.push({ concepto: "FOB del proveedor", monto_usd: fob, fuente: "Proforma Invoice" });
+    if (fob > 0) costosReales.push({ concepto: "FOB del proveedor", monto_usd: fob, fuente: "Proforma Invoice", es_credito_fiscal: false });
     else advertencias.push("La Proforma Invoice está cargada pero no se pudo extraer el FOB total.");
   } else {
     advertencias.push("No se encontró Proforma Invoice extraída. El FOB real no puede determinarse.");
@@ -246,8 +250,13 @@ Respondé SOLO con JSON válido, sin texto adicional:
   const jsonMatch = text.match(/\{[\s\S]*\}/);
   if (!jsonMatch) throw new Error("La IA no devolvió un resultado válido");
 
-  const result = JSON.parse(jsonMatch[0]) as { items: ItemPropuesto[] };
-  return { items: result.items, cbm_proporcion: cbmProporcionPromedio, advertencias };
+  const result = JSON.parse(jsonMatch[0]) as { items: Omit<ItemPropuesto, "es_credito_fiscal">[] };
+  const creditoFiscalPorConcepto = new Map(costosReales.map((c) => [c.concepto, c.es_credito_fiscal]));
+  const items: ItemPropuesto[] = result.items.map((item) => ({
+    ...item,
+    es_credito_fiscal: creditoFiscalPorConcepto.get(item.concepto_real) ?? esCreditoFiscal(item.concepto_real),
+  }));
+  return { items, cbm_proporcion: cbmProporcionPromedio, advertencias };
 }
 
 // Lleva los montos reales confirmados de la comparación a la tabla "costos"
@@ -260,7 +269,7 @@ async function sincronizarComparacionACostos(carpetaId: string, itemsConfirmados
   for (const item of conMatch) {
     await supabase
       .from("costos")
-      .update({ monto_real_usd: item.monto_real_usd })
+      .update({ monto_real_usd: item.monto_real_usd, es_credito_fiscal: item.es_credito_fiscal })
       .eq("carpeta_id", carpetaId)
       .eq("concepto", item.concepto_simulado as string);
   }
@@ -279,6 +288,7 @@ async function sincronizarComparacionACostos(carpetaId: string, itemsConfirmados
         origen: "real" as const,
         monto_estimado_usd: 0,
         monto_real_usd: item.monto_real_usd,
+        es_credito_fiscal: item.es_credito_fiscal,
         notas: `Detectado automáticamente en ${item.fuente}`,
       }))
     );

@@ -17,6 +17,11 @@ const config: Config = {
     },
     extend: {
       colors: {
+        cac: {
+          blue: "#254A96",
+          red: "#E52322",
+          bg: "#F8F9FB",
+        },
         border: "hsl(var(--border))",
         input: "hsl(var(--input))",
         ring: "hsl(var(--ring))",
@@ -50,6 +55,9 @@ const config: Config = {
           DEFAULT: "hsl(var(--card))",
           foreground: "hsl(var(--card-foreground))",
         },
+      },
+      fontFamily: {
+        sans: ["Barlow", "sans-serif"],
       },
       borderRadius: {
         lg: "var(--radius)",

@@ -178,6 +178,7 @@ export interface Sku {
   carpeta_id: string;
   codigo_sku: string | null;
   descripcion: string | null;
+  descripcion_es: string | null;
   cantidad: number;
   precio_unitario_fob_usd: number;
   peso_kg: number | null;
@@ -200,6 +201,7 @@ export interface Costo {
   tc_aplicado: number | null;
   notas: string | null;
   ncm_codigo: string | null;
+  es_credito_fiscal: boolean;
   created_by: string | null;
   created_at: string;
 }

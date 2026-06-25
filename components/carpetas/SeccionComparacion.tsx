@@ -18,6 +18,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useToast } from "@/components/ui/use-toast";
+import { esCreditoFiscal } from "@/lib/prorrateo";
 
 const OPCIONES_SIMULACION = [
   "FOB del proveedor",
@@ -74,7 +75,7 @@ export function SeccionComparacion({ carpetaId, comparacionGuardada }: Props) {
   // confirmado=false (dudoso, quedó pendiente de revisión) → confidence 0.
   const [items, setItems] = useState<ItemPropuesto[] | null>(
     comparacionGuardada.length > 0
-      ? comparacionGuardada.map(c => ({ ...c, confidence: c.confirmado ? 1 : 0 }))
+      ? comparacionGuardada.map(c => ({ ...c, confidence: c.confirmado ? 1 : 0, es_credito_fiscal: esCreditoFiscal(c.concepto_real) }))
       : null
   );
   const [advertencias, setAdvertencias] = useState<string[]>([]);

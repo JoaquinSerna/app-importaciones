@@ -33,9 +33,9 @@ export function MainNav() {
   }
 
   return (
-    <header className="border-b bg-background">
+    <header className="bg-cac-blue">
       <div className="container flex h-14 items-center gap-6">
-        <Link href="/dashboard" className="font-semibold">
+        <Link href="/dashboard" className="font-semibold text-white">
           Importaciones
         </Link>
         <nav className="flex items-center gap-4 text-sm flex-1">
@@ -46,8 +46,8 @@ export function MainNav() {
                 key={link.href}
                 href={link.href}
                 className={cn(
-                  "transition-colors hover:text-foreground",
-                  active ? "text-foreground font-medium" : "text-muted-foreground"
+                  "transition-colors text-white/70 hover:text-white",
+                  active && "text-white font-medium underline underline-offset-8"
                 )}
               >
                 {link.label}
@@ -55,7 +55,12 @@ export function MainNav() {
             );
           })}
         </nav>
-        <Button variant="ghost" size="sm" onClick={handleLogout}>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={handleLogout}
+          className="border-white text-white hover:bg-white/10 hover:text-white bg-transparent"
+        >
           Salir
         </Button>
       </div>

@@ -67,7 +67,7 @@ async function sincronizarDescripcionesDeUnDocumento(
   supabase: ReturnType<typeof createClient>,
   carpetaId: string,
   tipo: "proforma_invoice" | "packing_list",
-  skus: { id: string; descripcion: string | null; cantidad: number | null; ncm_aranceles: { codigo_ncm: string } | null }[]
+  skus: { id: string; descripcion: string | null; descripcion_es?: string | null; cantidad: number | null; ncm_aranceles: { codigo_ncm: string } | null }[]
 ): Promise<{ actualizados: number; itemsEncontrados: number }> {
   const { data: doc } = await supabase
     .from("documentos")
@@ -124,11 +124,14 @@ async function sincronizarDescripcionesDeUnDocumento(
       update.precio_unitario_fob_usd = montoTotal / cantidad;
     }
 
-    const descripcionNueva = item?.descripcion_es?.trim() || item?.descripcion?.trim();
+    const descripcionNueva = item?.descripcion?.trim() || item?.descripcion_es?.trim();
     const codigoNcm = sku.ncm_aranceles?.codigo_ncm ?? null;
     const descripcionEsPlaceholder = !sku.descripcion || sku.descripcion === codigoNcm;
     if (descripcionNueva && descripcionEsPlaceholder) {
       update.descripcion = descripcionNueva;
+    }
+    if (item?.descripcion_es?.trim() && !sku.descripcion_es) {
+      update.descripcion_es = item.descripcion_es.trim();
     }
 
     if (Object.keys(update).length === 0) continue;
@@ -144,7 +147,7 @@ async function sincronizarDescripcionesSkusDesdeDocumento(carpetaId: string, tip
 
   const { data: skus } = await supabase
     .from("skus")
-    .select("id, descripcion, cantidad, created_at, ncm_aranceles(codigo_ncm)")
+    .select("id, descripcion, descripcion_es, cantidad, created_at, ncm_aranceles(codigo_ncm)")
     .eq("carpeta_id", carpetaId)
     .order("created_at", { ascending: true });
   if (!skus || skus.length === 0) return;
@@ -153,13 +156,14 @@ async function sincronizarDescripcionesSkusDesdeDocumento(carpetaId: string, tip
     supabase,
     carpetaId,
     tipo,
-    skus as unknown as { id: string; descripcion: string | null; cantidad: number | null; ncm_aranceles: { codigo_ncm: string } | null }[]
+    skus as unknown as { id: string; descripcion: string | null; descripcion_es: string | null; cantidad: number | null; ncm_aranceles: { codigo_ncm: string } | null }[]
   );
 }
 
 interface SkuParaNombrar {
   id: string;
   descripcion: string | null;
+  descripcion_es: string | null;
   cantidad: number;
   precio_unitario_fob_usd: number;
   ncm_aranceles: { codigo_ncm: string } | null;
@@ -196,7 +200,8 @@ async function agruparDescripcionesConIA(
 
   const itemsConMonto = items.map((it, i) => ({
     index: i,
-    descripcion: it.descripcion_es ?? it.descripcion ?? `Item ${i + 1}`,
+    descripcion: it.descripcion ?? it.descripcion_es ?? `Item ${i + 1}`,
+    descripcionEs: it.descripcion_es ?? null,
     monto: it.total ?? (it.cantidad ?? 0) * (it.precio_unitario ?? 0),
     cantidad: it.cantidad ?? 1,
   }));
@@ -256,6 +261,8 @@ Respondé SOLO con JSON válido, sin texto adicional:
     const itemsAsignados = (asignacion.itemIndices ?? [])
       .map((i) => itemsConMonto[i])
       .filter((it): it is (typeof itemsConMonto)[number] => !!it);
+    const descripcionEsCombinada = itemsAsignados.map((it) => it.descripcionEs).filter(Boolean).join(" + ");
+    if (descripcionEsCombinada) update.descripcion_es = descripcionEsCombinada;
     if (itemsAsignados.length > 0) {
       const cantidadTotal = itemsAsignados.reduce((a, it) => a + it.cantidad, 0);
       const montoTotal = itemsAsignados.reduce((a, it) => a + it.monto, 0);
@@ -281,7 +288,7 @@ export async function actualizarNombresSkusDesdeDocumentos(
 
   const { data: skus } = await supabase
     .from("skus")
-    .select("id, descripcion, cantidad, precio_unitario_fob_usd, created_at, ncm_aranceles(codigo_ncm)")
+    .select("id, descripcion, descripcion_es, cantidad, precio_unitario_fob_usd, created_at, ncm_aranceles(codigo_ncm)")
     .eq("carpeta_id", carpetaId)
     .order("created_at", { ascending: true });
   if (!skus || skus.length === 0) {

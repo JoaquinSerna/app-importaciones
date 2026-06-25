@@ -11,6 +11,12 @@ export function criterioPorConcepto(concepto: string): CriterioProrrateo {
   return PATRONES_FOB.some((re) => re.test(concepto)) ? "fob" : "cbm";
 }
 
+// IVA facturado por la naviera o el despachante es crédito fiscal
+// recuperable, no un costo real de la importación.
+export function esCreditoFiscal(concepto: string): boolean {
+  return /\biva\b/i.test(concepto);
+}
+
 export interface ItemProrrateable {
   id: string;
   cbm?: number;

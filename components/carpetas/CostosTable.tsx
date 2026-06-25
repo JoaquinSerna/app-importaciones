@@ -27,8 +27,9 @@ export function CostosTable({
   costos: Costo[];
   fobTotalUsd: number;
 }) {
-  const totalCostosEstimado = costos.reduce((acc, c) => acc + c.monto_estimado_usd, 0);
-  const totalCostosReal = costos.reduce((acc, c) => acc + (c.monto_real_usd ?? 0), 0);
+  const costosSinCreditoFiscal = costos.filter((c) => !c.es_credito_fiscal);
+  const totalCostosEstimado = costosSinCreditoFiscal.reduce((acc, c) => acc + c.monto_estimado_usd, 0);
+  const totalCostosReal = costosSinCreditoFiscal.reduce((acc, c) => acc + (c.monto_real_usd ?? 0), 0);
   const totalEstimado = fobTotalUsd + totalCostosEstimado;
   const totalReal = fobTotalUsd + totalCostosReal;
 
@@ -58,6 +59,21 @@ export function CostosTable({
             <TableCell className="text-right">-</TableCell>
           </TableRow>
           {costos.map((costo) => {
+            if (costo.es_credito_fiscal) {
+              return (
+                <TableRow key={costo.id} className="text-muted-foreground">
+                  <TableCell colSpan={2}>IVA (crédito fiscal — no es costo)</TableCell>
+                  <TableCell className="capitalize">{costo.origen}</TableCell>
+                  <TableCell className="text-right">{formatUsd(costo.monto_estimado_usd)}</TableCell>
+                  <TableCell className="text-right">
+                    {costo.monto_real_usd !== null && costo.monto_real_usd !== undefined
+                      ? formatUsd(costo.monto_real_usd)
+                      : "-"}
+                  </TableCell>
+                  <TableCell className="text-right">-</TableCell>
+                </TableRow>
+              );
+            }
             const varianza = varianzaPct(costo.monto_estimado_usd, costo.monto_real_usd ?? null);
             return (
               <TableRow key={costo.id}>
