@@ -198,11 +198,18 @@ IMPORTANTE sobre montos: NO asumas ni asignes la moneda (USD o ARS) de cada cost
 - Cualquier otro concepto que no reconozcas → copiá el texto tal como figura impreso, sin inventar a qué corresponde.
 NO omitas ninguna fila aunque no la reconozcas. NO tenés que sumar nada entre ítems: el código de la aplicación se encarga de sumar los montos ya clasificados. Es más importante que cada fila y cada número individual esté bien clasificado y sea correcto que tratar de calcular un total.
 
-ATENCIÓN — esto es la causa más común de error: en la sección "LIQUIDACION" de cada ítem (típicamente la primera hoja) aparecen DOS bloques de columnas, uno al lado del otro:
-  - IZQUIERDA, encabezado "DEL ITEM": columnas Porc. / P-G-C / Importe → ESTOS son los montos de ESTE ítem puntual. Son los que tenés que usar.
-  - DERECHA, encabezado "TOTAL": columnas P-G-C / Importe → este es el ACUMULADO de TODO el despacho hasta ese momento (en el último ítem, coincide con el total del despacho completo). NO es el monto de este ítem. NO LO USES NUNCA, ni para "items" ni para "valores_generales" — usarlo da resultados mucho más altos que la realidad.
-- La forma de diferenciarlos: la columna de la izquierda tiene un "Porc." (porcentaje) al lado de cada importe; la columna de la derecha (TOTAL) no tiene porcentaje, solo P/G/C e Importe.
-- Si el despacho tiene una sola página/ítem, "items" tiene un solo elemento y el monto de "DEL ITEM" y el de "TOTAL" pueden coincidir — está bien, usá igual el de "DEL ITEM".
+ATENCIÓN — esto es la causa más común de error, y NO es que estén en bloques separados de la página: en la sección "LIQUIDACION", cada CONCEPTO ocupa UNA SOLA LÍNEA/FILA, y en esa misma fila aparecen DOS números, uno a cada lado del nombre del concepto:
+  - A LA IZQUIERDA del nombre del concepto, con un "Porc." (porcentaje) al lado: es el monto "DEL ITEM" — SOLO de este ítem puntual. ESTE es el que tenés que usar.
+  - A LA DERECHA del nombre del concepto, sin porcentaje, bajo la columna "TOTAL": es el ACUMULADO de todos los ítems del despacho hasta ese punto (va creciendo ítem a ítem; en el último ítem coincide con el total general del despacho). NUNCA uses este número — ni para "items" ni para "valores_generales" — da resultados mucho más altos que la realidad, y si lo confundís con el monto de otro concepto el desglose completo queda mal.
+
+Ejemplo real de una fila tal como aparece en el PDF (un despacho con varios ítems ya liquidados antes que este):
+  "20,00  P  1.984,39  ( 010 ) DERECHOS IMPORTACION  P  13.422,89"
+  → "Porc." 20,00 e importe 1.984,39 están A LA IZQUIERDA del nombre "DERECHOS IMPORTACION": ESE es el monto de este ítem → { "concepto": "Derechos de importación", "monto": 1984.39 }.
+  → El 13.422,89 que aparece DESPUÉS del nombre del concepto es el acumulado de TODOS los ítems anteriores + este: IGNORALO COMPLETAMENTE, no lo asignes a ningún concepto (ni a este ítem ni a otro).
+Aplicá esta misma regla a TODAS las filas de TODOS los ítems: de cada fila, quedate solo con el número que está ANTES del nombre del concepto (al lado del Porc.); el número que está DESPUÉS del nombre del concepto se descarta siempre, sin excepción.
+- Cuando una fila no tenga "Porc." visible (ej. "TASA ESTAD MONT MAX", que es un tope fijo en vez de un %), el monto "DEL ITEM" sigue siendo el que aparece pegado al nombre del concepto en esa misma línea, antes de cualquier otro número que venga después.
+- Cada concepto (010, 011/061, 415, 017, etc.) aparece COMO MÁXIMO UNA VEZ por ítem en la lista "conceptos" de ese ítem. Si te parece que el mismo concepto se repite con dos montos muy distintos dentro de un mismo ítem, es señal de que tomaste el "DEL ITEM" una vez y el "TOTAL" acumulado la otra — quedate solo con el monto "DEL ITEM" y descartá el otro.
+- Si el despacho tiene una sola página/ítem, el monto "DEL ITEM" y el "TOTAL" pueden coincidir — está bien, usá igual el de la izquierda.
 
 {
   "numero_despacho": "número completo del despacho (ej: 012D-2024-000123)",
@@ -287,10 +294,39 @@ export async function extraerDatosDocumento(
   }
 
   if (tipo === "despacho_aduana" && datos) {
+    datos.items = depurarConceptosDuplicadosPorItem((datos.items ?? []) as ItemDespachoExtraido[]);
     datos.items_costos = construirItemsCostosDespacho(datos);
   }
 
   return datos;
+}
+
+interface ItemDespachoExtraido {
+  item: number;
+  ncm: string;
+  conceptos: { concepto: string; monto: number }[];
+}
+
+// Salvaguarda en código contra el error más común de extracción: el PDF
+// muestra, en la misma fila, el monto "DEL ITEM" (a usar) y el "TOTAL"
+// acumulado del despacho (a ignorar) a cada lado del nombre del concepto —
+// si la IA toma el de la derecha por error, un mismo concepto termina
+// apareciendo dos veces dentro del mismo ítem con montos muy distintos. El
+// acumulado de TODO el despacho hasta ese ítem nunca puede ser menor que el
+// monto de ESE ítem individual, así que ante un concepto repetido nos
+// quedamos con el menor de los dos (el correcto) y descartamos el mayor.
+function depurarConceptosDuplicadosPorItem(items: ItemDespachoExtraido[]): ItemDespachoExtraido[] {
+  return items.map((item) => {
+    const porConcepto = new Map<string, { concepto: string; monto: number }>();
+    for (const c of item.conceptos ?? []) {
+      const clave = normalizarConceptoDespacho(c.concepto ?? "");
+      const existente = porConcepto.get(clave);
+      if (!existente || c.monto < existente.monto) {
+        porConcepto.set(clave, { concepto: c.concepto, monto: c.monto });
+      }
+    }
+    return { ...item, conceptos: Array.from(porConcepto.values()) };
+  });
 }
 
 // Normaliza el nombre tal como lo escribe el despacho (con códigos, puntos,
