@@ -3,6 +3,30 @@ import type { TipoDocumento } from "@/lib/types";
 
 const client = new Anthropic();
 
+const REINTENTOS_OVERLOADED = 3;
+
+// La API de Anthropic devuelve 529 ("overloaded_error") cuando está
+// momentáneamente saturada — no es un error del request, conviene
+// reintentar con backoff en vez de fallarle la extracción al usuario.
+async function crearMensajeConRetry(
+  params: Anthropic.MessageCreateParamsNonStreaming
+): Promise<Anthropic.Message> {
+  for (let intento = 1; intento <= REINTENTOS_OVERLOADED; intento++) {
+    try {
+      return await client.messages.create(params);
+    } catch (err) {
+      const status = err instanceof Anthropic.APIError ? err.status : undefined;
+      const esUltimoIntento = intento === REINTENTOS_OVERLOADED;
+      if (status !== 529 || esUltimoIntento) throw err;
+
+      const esperaMs = 1000 * 2 ** (intento - 1); // 1s, 2s, 4s
+      console.warn(`[crearMensajeConRetry] 529 overloaded, reintento ${intento}/${REINTENTOS_OVERLOADED} en ${esperaMs}ms`);
+      await new Promise((resolve) => setTimeout(resolve, esperaMs));
+    }
+  }
+  throw new Error("unreachable");
+}
+
 const PROMPTS: Partial<Record<TipoDocumento, string>> = {
   proforma_invoice: `
 Analizá esta Proforma Invoice y extraé la siguiente información en JSON:
@@ -283,10 +307,10 @@ export async function extraerDatosDocumento(
 
   // Los despachos pueden tener muchos ítems (varias páginas) — con pocos
   // tokens la respuesta se corta a la mitad y el JSON queda incompleto.
-  const maxTokens = tipo === "despacho_aduana" ? 8192 : 2048;
+  const maxTokens = tipo === "despacho_aduana" ? 16000 : 2048;
 
-  const response = await client.messages.create({
-    model: "claude-opus-4-8",
+  const response = await crearMensajeConRetry({
+    model: "claude-sonnet-4-6",
     max_tokens: maxTokens,
     messages: [
       {
@@ -295,6 +319,11 @@ export async function extraerDatosDocumento(
       },
     ],
   });
+
+  console.log(
+    `[extraerDatosDocumento] tipo=${tipo} stop_reason=${response.stop_reason} ` +
+      `input_tokens=${response.usage.input_tokens} output_tokens=${response.usage.output_tokens}`
+  );
 
   const text = response.content.find((c) => c.type === "text")?.text ?? "";
   const jsonMatch = text.match(/\{[\s\S]*\}/);
