@@ -201,7 +201,6 @@ async function agruparDescripcionesConIA(
   const itemsConMonto = items.map((it, i) => ({
     index: i,
     descripcion: it.descripcion ?? it.descripcion_es ?? `Item ${i + 1}`,
-    descripcionEs: it.descripcion_es ?? null,
     monto: it.total ?? (it.cantidad ?? 0) * (it.precio_unitario ?? 0),
     cantidad: it.cantidad ?? 1,
   }));
@@ -228,12 +227,14 @@ ${skusInfo.map(s => `- SKU ${s.index}: NCM ${s.ncm ?? "?"}, monto FOB USD ${s.mo
 Ítems (índice, descripción, monto):
 ${itemsConMonto.map(it => `- Item ${it.index}: "${it.descripcion}" — USD ${it.monto.toFixed(2)}`).join("\n")}
 
+Para el campo "descripcion_es" de cada asignación, traducí SIEMPRE al español el/los producto(s) asignados, sin importar en qué idioma estén los ítems originales (inglés, chino, etc). Que sea corto y descriptivo, sin código de producto ni medidas de empaque — ej: "Guante de cuero AB grade", "Botas PVC aislación eléctrica 6KV", "Casco HDPE cuatro puntos". Si agrupás más de un ítem, combiná los nombres con " + ".
+
 Respondé SOLO con JSON válido, sin texto adicional:
 {
   "asignaciones": [
     {
       "skuIndex": número,
-      "descripcion": "nombre combinado de los ítems asignados a este SKU, ej: 'Producto A + Producto B' si hay más de uno",
+      "descripcion_es": "nombre corto y descriptivo en español de los ítems asignados a este SKU",
       "itemIndices": [índices de los ítems que asignaste a este SKU]
     }
   ]
@@ -246,7 +247,7 @@ Respondé SOLO con JSON válido, sin texto adicional:
   if (!jsonMatch) return 0;
 
   const resultado = JSON.parse(jsonMatch[0]) as {
-    asignaciones: { skuIndex: number; descripcion: string; itemIndices?: number[] }[];
+    asignaciones: { skuIndex: number; descripcion_es: string; itemIndices?: number[] }[];
   };
 
   if (resultado.asignaciones.length === 0) {
@@ -257,14 +258,14 @@ Respondé SOLO con JSON válido, sin texto adicional:
   for (const asignacion of resultado.asignaciones) {
     const sku = skus[asignacion.skuIndex];
     if (!sku) continue;
-    if (!asignacion.descripcion?.trim()) continue;
+    if (!asignacion.descripcion_es?.trim()) continue;
 
-    const update: Record<string, unknown> = { descripcion: asignacion.descripcion.trim() };
+    const update: Record<string, unknown> = { descripcion_es: asignacion.descripcion_es.trim() };
     const itemsAsignados = (asignacion.itemIndices ?? [])
       .map((i) => itemsConMonto[i])
       .filter((it): it is (typeof itemsConMonto)[number] => !!it);
-    const descripcionEsCombinada = itemsAsignados.map((it) => it.descripcionEs).filter(Boolean).join(" + ");
-    if (descripcionEsCombinada) update.descripcion_es = descripcionEsCombinada;
+    const descripcionOriginalCombinada = itemsAsignados.map((it) => it.descripcion).filter(Boolean).join(" + ");
+    if (descripcionOriginalCombinada) update.descripcion = descripcionOriginalCombinada;
     if (itemsAsignados.length > 0) {
       const cantidadTotal = itemsAsignados.reduce((a, it) => a + it.cantidad, 0);
       const montoTotal = itemsAsignados.reduce((a, it) => a + it.monto, 0);
