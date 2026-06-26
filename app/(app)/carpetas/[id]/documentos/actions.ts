@@ -249,13 +249,15 @@ Respondé SOLO con JSON válido, sin texto adicional:
     asignaciones: { skuIndex: number; descripcion: string; itemIndices?: number[] }[];
   };
 
+  if (resultado.asignaciones.length === 0) {
+    console.error("agruparDescripcionesConIA: la IA no devolvió asignaciones");
+  }
+
   let actualizados = 0;
   for (const asignacion of resultado.asignaciones) {
     const sku = skus[asignacion.skuIndex];
     if (!sku) continue;
-    const codigoNcm = sku.ncm_aranceles?.codigo_ncm ?? null;
-    const esPlaceholder = !sku.descripcion || sku.descripcion === codigoNcm;
-    if (!esPlaceholder || !asignacion.descripcion?.trim()) continue;
+    if (!asignacion.descripcion?.trim()) continue;
 
     const update: Record<string, unknown> = { descripcion: asignacion.descripcion.trim() };
     const itemsAsignados = (asignacion.itemIndices ?? [])
@@ -275,6 +277,11 @@ Respondé SOLO con JSON válido, sin texto adicional:
     await supabase.from("skus").update(update).eq("id", sku.id);
     actualizados++;
   }
+
+  if (actualizados === 0 && resultado.asignaciones.length > 0) {
+    console.error("agruparDescripcionesConIA: todas las asignaciones fueron descartadas (sin descripción válida)");
+  }
+
   return actualizados;
 }
 
