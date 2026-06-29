@@ -215,9 +215,12 @@ export async function confirmarAsignacionDI(
         antidumpingPorSku.set(fila.sku_id, (antidumpingPorSku.get(fila.sku_id) ?? 0) + monto);
       }
     }
-    for (const [skuId, monto] of Array.from(antidumpingPorSku.entries())) {
-      if (monto > 0) montosPorSkuConcepto.set(`${skuId}__Derechos anti-dumping`, monto);
-    }
+  }
+
+  // Se vuelca una sola vez, ya con el total acumulado de todos los ítems del
+  // DI, en vez de reescribirlo en cada vuelta del loop de arriba.
+  for (const [skuId, monto] of Array.from(antidumpingPorSku.entries())) {
+    if (monto > 0) montosPorSkuConcepto.set(`${skuId}__Derechos anti-dumping`, monto);
   }
 
   // Reset paga_dumping en todas las carpetas del contenedor antes de marcar
@@ -255,6 +258,11 @@ export async function confirmarAsignacionDI(
     // una confirmación anterior, antes de re-escribir desde cero.
     await supabase.from("costos").delete().eq("carpeta_id", carpetaId).eq("notas", NOTA_DI);
 
+    // Limpio también filas de antidumping que hayan quedado de versiones
+    // anteriores de este flujo (con otra nota u origen), para que no queden
+    // duplicadas ni interfieran con el cálculo de esta confirmación.
+    await supabase.from("costos").delete().eq("carpeta_id", carpetaId).ilike("concepto", "%anti%dumping%");
+
     const { data: costosExistentes } = await supabase.from("costos").select("id, concepto, origen").eq("carpeta_id", carpetaId);
 
     // Pongo en 0 los tributos conocidos antes de reaplicar — si esta
@@ -270,6 +278,9 @@ export async function confirmarAsignacionDI(
       const concepto = k.split("__")[1];
       const familia = familiaTributo(concepto);
       const costoExistente = (costosExistentes ?? []).find((c) => familia && familiaTributo(c.concepto) === familia);
+      console.log(
+        `[confirmarAsignacionDI] concepto="${concepto}" familia="${familia}" costoExistente=${costoExistente?.id ?? "null"} monto=${monto}`
+      );
 
       if (costoExistente) {
         await supabase.from("costos").update({ monto_real_usd: monto }).eq("id", costoExistente.id);
