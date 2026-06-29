@@ -21,7 +21,7 @@ export default function ManualPage() {
           ["#carpetas", "7. Gestión de Carpetas"],
           ["#carpeta-documentos", "8. Documentos de la carpeta (Secciones 1, 2 y 3)"],
           ["#contenedores", "9. Contenedores"],
-          ["#contenedor-documentos", "10. Documentos del contenedor (Sección 1)"],
+          ["#contenedor-documentos", "10. Documentos del contenedor"],
           ["#dashboard", "11. Dashboard"],
           ["#reportes", "12. Reportes"],
           ["#glosario", "13. Glosario"],
@@ -45,11 +45,14 @@ export default function ManualPage() {
           <ol>
             <li>Crear el proveedor en <strong>Proveedores</strong></li>
             <li>Configurar parámetros globales y NCMs</li>
-            <li>Simular → crear carpeta</li>
-            <li>Carpeta → Documentos → subir Sección 1 (documentos del proveedor) y Sección 2 (pagos)</li>
-            <li>Cuando se cierra el embarque, crear el contenedor y asignar las carpetas</li>
-            <li>Contenedor → Documentos → subir Sección 1 (SAF, facturas, despacho de aduana)</li>
-            <li>Ver la Sección 3 de la carpeta: comparación estimado vs. real prorrateada automáticamente</li>
+            <li>Simular → crear carpeta (queda en estado Simulación)</li>
+            <li>Carpeta → Documentos → subir Proforma Invoice y Packing List (la app crea los SKUs automáticamente con nombres en español)</li>
+            <li>Carpeta → Documentos → subir comprobantes de pago al proveedor</li>
+            <li>Cuando se confirma el embarque, crear el contenedor y asignar las carpetas indicando el CBM de cada una</li>
+            <li>Contenedor → Documentos → subir Factura naviera, Factura despachante y Despacho de Importación (DI)</li>
+            <li>Al subir el DI, la app asigna automáticamente los impuestos a cada carpeta y SKU — no hay pasos manuales adicionales</li>
+            <li>Ver pestaña SKUs de cada carpeta: costo unitario real por producto</li>
+            <li>Ver pestaña Costos: comparación estimado vs. real con varianza</li>
           </ol>
         </Callout>
       </Section>
@@ -141,7 +144,7 @@ export default function ManualPage() {
         <p className="mt-4 font-medium">Tabs dentro de una carpeta:</p>
         <ul>
           <li><strong>Resumen</strong> — FOB, CIF estimado, estado, BL (editable), fechas clave incluyendo fechas de pago (se cargan solas al subir los comprobantes).</li>
-          <li><strong>SKUs</strong> — Productos con código, cantidad, precio, CBM y peso.</li>
+          <li><strong>SKUs</strong> — Los nombres de los SKUs se traducen automáticamente al español al subir la Proforma Invoice o el Packing List. Cada SKU muestra: nombre en español, código original del proveedor, cantidad, FOB unitario, CBM, costo total estimado y real, costo unitario estimado y real, y si paga antidumping (detectado automáticamente del DI).</li>
           <li><strong>Costos</strong> — Estimado vs. real con variación.</li>
           <li><strong>Timeline</strong> — Fechas de pago, embarque, ETA, arribo, liberación.</li>
           <li><strong>Documentos</strong> — Ver sección siguiente (8).</li>
@@ -180,18 +183,7 @@ export default function ManualPage() {
         </Callout>
 
         <p className="font-medium mt-4">Sección 3 · Comparación estimado vs. real</p>
-        <p>Esta sección se completa automáticamente una vez que se sube el despacho de aduana en el contenedor al que pertenece la carpeta. Muestra:</p>
-        <ul>
-          <li>Tributos reales extraídos del despacho (derechos, IVA, IVA adicional, ganancias, tasa estadística)</li>
-          <li>Comparación línea a línea contra la simulación original</li>
-          <li>NCM final utilizado en el despacho (puede diferir del NCM original si el despachante lo ajustó)</li>
-        </ul>
-        <p>El prorrateo entre carpetas se hace automáticamente:</p>
-        <ul>
-          <li>Si todas las carpetas del contenedor tienen el <strong>mismo NCM</strong>, se prorratean los tributos por <strong>% del FOB</strong> dentro de ese NCM.</li>
-          <li>Si los NCM son distintos, el sistema <strong>asocia directamente</strong> cada ítem del despacho a la carpeta que tiene ese NCM.</li>
-          <li>Los costos logísticos (flete, THC, etc.) se prorratean por <strong>CBM o peso</strong>.</li>
-        </ul>
+        <p>Esta sección se completa automáticamente una vez que se sube el Despacho de Importación en el contenedor correspondiente. No hay que hacer nada manual. Muestra la comparación línea a línea de cada costo estimado vs. real con la varianza en porcentaje.</p>
       </Section>
 
       <Section id="contenedores" title="9. Contenedores">
@@ -212,34 +204,54 @@ export default function ManualPage() {
         <p>El <strong>número de BL</strong> se carga en cada carpeta (tab Resumen), no en el contenedor.</p>
       </Section>
 
-      <Section id="contenedor-documentos" title="10. Documentos del contenedor (Sección 1)">
-        <p>Dentro del contenedor, tab <strong>Documentos</strong>, está la <strong>Sección 1 · Operación aduanera</strong>. Acá se cargan todos los documentos que llegan cuando el contenedor ya llegó a Argentina y se empieza el despacho.</p>
+      <Section id="contenedor-documentos" title="10. Documentos del contenedor">
+        <p>Dentro del contenedor, tab <strong>Documentos</strong>, se cargan todos los documentos compartidos entre las carpetas del envío. Al subir cada documento, la app extrae los datos automáticamente y actualiza los costos de todas las carpetas del contenedor — sin pasos manuales adicionales.</p>
         <Table
-          headers={["Documento", "Qué extrae la IA"]}
+          headers={["Documento", "Qué hace la app automáticamente"]}
           rows={[
-            ["SAF (Servicio Almacenaje y Fiscalización)", "N° SAF, despachante, monto total, conceptos"],
-            ["Comprobante pago SAF", "Fecha y monto del pago"],
-            ["Factura logística", "N° factura, empresa logística (ej: ACW Cargo), monto total, conceptos (flete, THC, handling, etc.)"],
-            ["Comprobante pago logística", "Fecha y monto del pago"],
-            ["Factura despachante", "N° factura, honorarios y gastos del despachante, N° de despacho"],
-            ["Comprobante pago despachante", "Fecha y monto del pago"],
-            ["Despacho de aduana", "NCM por ítem, FOB, flete, CIF, derechos de importación, tasa estadística, IVA, IVA adicional, ganancias, total tributos, tipo de cambio oficial"],
+            ["Aviso de arribo", "Extrae fecha de arribo estimada y real"],
+            ["Factura naviera", "Extrae flete, seguro, THC, TOLL, gastos locales, consolidado. Los prorratea por CBM entre las carpetas. Excluye el IVA de servicios (es crédito fiscal, no es costo)."],
+            ["Comprobante pago naviera", "Registra fecha y monto del pago"],
+            ["Factura despachante", "Extrae honorarios, digitalización, tramitaciones, gastos operativos, depósito fiscal, flete local, gastos bancarios. Los prorratea por CBM o FOB según corresponde."],
+            ["Comprobante pago despachante", "Registra fecha y monto del pago"],
+            ["Despacho de Importación (DI)", "El más importante. Extrae los impuestos de cada ítem (derechos, tasa estadística, antidumping, IVA). Asigna cada ítem a la carpeta y SKU correcto usando IA. Calcula el costo por SKU. Marca automáticamente cuáles pagan antidumping."],
+            ["VEP AFIP", "Comprobante del pago de impuestos aduaneros"],
           ]}
         />
-        <Callout title="El despacho de aduana es el documento más importante">
-          Una vez que subís el despacho, el sistema extrae todos los tributos reales ítem por ítem y los prorrateas automáticamente entre las carpetas del contenedor. Así podés ver en cada carpeta cuánto pagaste realmente de impuestos vs. lo que habías estimado en la simulación.
+        <Callout title="El Despacho de Importación (DI) — flujo automático">
+          Al subir el DI, la app: (1) extrae todos los ítems con sus impuestos en USD, (2) usa IA para asignar cada ítem a la carpeta y SKU correcto, (3) calcula y guarda los costos reales en cada carpeta, (4) marca automáticamente qué SKUs pagan antidumping. Si la IA asigna algún ítem con baja confianza, aparece un banner de alerta en el contenedor para que el comprador revise esa asignación.
         </Callout>
-        <p>Debajo de los slots de documentos, al cargar el despacho, aparece un <strong>resumen de tributos reales</strong> con los totales del contenedor (FOB USD, CIF USD, derechos ARS, IVA ARS, etc.).</p>
+        <p className="font-medium mt-4">Criterios de prorrateo</p>
+        <Table
+          headers={["Costo", "Criterio", "Alcance"]}
+          rows={[
+            ["Flete, THC, TOLL, depósito fiscal, flete local, gastos locales, consolidado", "CBM", "Todos los ítems del contenedor"],
+            ["Honorarios despachante, gastos bancarios, seguro", "% del FOB", "Todos los ítems del contenedor"],
+            ["Derechos, tasa estadística, antidumping, IVA aduanero", "Directo por ítem del DI", "Por SKU según NCM"],
+          ]}
+        />
       </Section>
 
       <Section id="dashboard" title="11. Dashboard">
-        <p>Muestra todas las operaciones activas en formato kanban (columnas por estado). Cada tarjeta muestra número, proveedor, FOB y días transcurridos.</p>
+        <p>El dashboard muestra todas las importaciones activas en formato kanban (columnas por estado). Diseñado para que la gerencia vea el estado del negocio de un vistazo.</p>
+        <p className="font-medium mt-2">Métricas del encabezado</p>
         <Table
-          headers={["Color", "Significado"]}
+          headers={["Métrica", "Qué muestra"]}
           rows={[
-            ["Verde", "Todo en orden"],
-            ["Amarillo", "Algún plazo se está acercando"],
-            ["Rojo", "Fecha vencida o demasiados días sin movimiento"],
+            ["Carpetas activas", "Importaciones que no están finalizadas"],
+            ["FOB en tránsito", "Total de mercadería en camino en USD"],
+            ["Próximo arribo", "Qué importación llega primero y en cuántos días"],
+            ["Varianza promedio", "Si los costos reales están por encima o debajo del estimado"],
+          ]}
+        />
+        <p className="font-medium mt-4">Alertas</p>
+        <Table
+          headers={["Alerta", "Significado"]}
+          rows={[
+            ["Borde rojo en la card", "La ETA venció y la carpeta no está finalizada"],
+            ["Badge “ETA VENCIDA”", "El barco debería haber llegado pero no hay arribo registrado"],
+            ["Badge “SOBRECOSTE”", "Los costos reales superan en más de 10% al estimado"],
+            ["Banner amarillo en contenedor", "Hay ítems del DI con baja confianza — revisar la asignación"],
           ]}
         />
       </Section>
@@ -271,7 +283,12 @@ export default function ManualPage() {
             ["LCL", "Less than Container Load. Grupaje: compartís el contenedor con otras cargas."],
             ["BL", "Bill of Lading (conocimiento de embarque). Documento que emite la naviera."],
             ["ETA", "Estimated Time of Arrival. Fecha estimada de llegada al puerto."],
-            ["PPO Projects", "Tu empresa importadora. Los documentos del proveedor deben consignar este nombre como destinatario."],
+            ["PPO Projects", "Empresa intermediaria que realiza los pagos a proveedores chinos. No cobra comisión adicional."],
+            ["DI", "Despacho de Importación. Documento oficial de AFIP con los impuestos pagados por cada producto."],
+            ["Antidumping", "Impuesto especial que pagan ciertos productos para proteger la industria local. Se detecta automáticamente del DI."],
+            ["Crédito fiscal", "El IVA de facturas de naviera y despachante que CAC recupera ante AFIP. No es un costo real de la importación."],
+            ["SKU", "Stock Keeping Unit. Cada variante de producto dentro de una importación."],
+            ["Varianza", "Diferencia porcentual entre el costo estimado y el real. Verde = costó menos, rojo = costó más."],
           ]}
         />
       </Section>
