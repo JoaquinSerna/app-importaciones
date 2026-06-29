@@ -142,6 +142,43 @@ export interface AsignacionItemInput {
   skuIds: string[];
 }
 
+// Corre la propuesta de la IA y, si propuso algo para todos los ítems,
+// la confirma en el mismo paso — para no obligar a un segundo click manual
+// cuando la sugerencia ya está bien.
+export async function asignarYConfirmarDI(contenedorId: string): Promise<{ error?: string; asignados?: number }> {
+  const resultadoIA = await asignarItemsDI(contenedorId);
+  if (resultadoIA.error) return resultadoIA;
+
+  const supabase = createClient();
+  const { data: diItems } = await supabase
+    .from("di_items")
+    .select("id, carpeta_id")
+    .eq("contenedor_id", contenedorId);
+  const diItemIds = (diItems ?? []).map((it) => it.id);
+
+  const { data: diItemSkus } = diItemIds.length > 0
+    ? await supabase.from("di_item_skus").select("di_item_id, sku_id").in("di_item_id", diItemIds)
+    : { data: [] };
+
+  const asignaciones: AsignacionItemInput[] = (diItems ?? [])
+    .filter((it): it is { id: string; carpeta_id: string } => !!it.carpeta_id)
+    .map((it) => ({
+      diItemId: it.id,
+      carpetaId: it.carpeta_id,
+      skuIds: (diItemSkus ?? []).filter((dis) => dis.di_item_id === it.id).map((dis) => dis.sku_id),
+    }))
+    .filter((a) => a.skuIds.length > 0);
+
+  if (asignaciones.length === 0) {
+    return { error: "La IA no pudo proponer ninguna asignación con SKUs para confirmar." };
+  }
+
+  const resultadoConfirmacion = await confirmarAsignacionDI(contenedorId, asignaciones);
+  if (resultadoConfirmacion.error) return { error: resultadoConfirmacion.error };
+
+  return { asignados: asignaciones.length };
+}
+
 // Confirma (o corrige) la asignación de cada ítem del DI a su carpeta/SKUs,
 // recalcula el prorrateo por FOB de cada tributo entre los SKUs de cada ítem,
 // y vuelca el resultado a `costos` (origen 'real') y `costos_sku` por

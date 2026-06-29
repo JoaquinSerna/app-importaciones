@@ -4,7 +4,7 @@ import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Loader2, Sparkles } from "lucide-react";
 
-import { asignarItemsDI, confirmarAsignacionDI, type AsignacionItemInput, type DiItem } from "@/app/(app)/contenedores/[id]/actions";
+import { asignarYConfirmarDI, confirmarAsignacionDI, type AsignacionItemInput, type DiItem } from "@/app/(app)/contenedores/[id]/actions";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -98,12 +98,12 @@ export function DiAsignacionEditor({ contenedorId, contenedorNumero, items, carp
 
   function handleAsignarConIA() {
     startTransition(async () => {
-      const resultado = await asignarItemsDI(contenedorId);
+      const resultado = await asignarYConfirmarDI(contenedorId);
       if (resultado.error) {
         toast({ title: "No se pudo asignar con IA", description: resultado.error, variant: "destructive" });
         return;
       }
-      toast({ title: `${resultado.asignados ?? 0} ítem(s) asignados por la IA` });
+      toast({ title: `${resultado.asignados ?? 0} ítem(s) asignados y confirmados por la IA` });
       router.refresh();
     });
   }
@@ -139,9 +139,9 @@ export function DiAsignacionEditor({ contenedorId, contenedorNumero, items, carp
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <Button variant="outline" size="sm" onClick={handleAsignarConIA} disabled={isPending}>
+        <Button variant="default" size="sm" onClick={handleAsignarConIA} disabled={isPending}>
           {isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> : <Sparkles className="h-3.5 w-3.5 mr-1" />}
-          Asignar con IA
+          Asignar con IA y confirmar
         </Button>
         <Button onClick={handleConfirmar} disabled={isPending || !todosAsignados}>
           {isPending && <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" />}
