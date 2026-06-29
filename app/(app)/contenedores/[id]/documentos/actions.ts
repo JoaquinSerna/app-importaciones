@@ -118,9 +118,18 @@ async function construirYGuardarDiItems(
 
   // Idempotente: se reemplazan los ítems de este documento (re-extracción o
   // reconfirmación de monedas no debe duplicarlos).
-  await supabase.from("di_items").delete().eq("documento_id", documentoId);
+  const { error: errorDelete } = await supabase.from("di_items").delete().eq("documento_id", documentoId);
+  if (errorDelete) {
+    console.error("construirYGuardarDiItems: delete di_items", errorDelete);
+    throw new Error(`No se pudo limpiar di_items previos: ${errorDelete.message}`);
+  }
+
   if (filas.length > 0) {
-    await supabase.from("di_items").insert(filas);
+    const { error: errorInsert } = await supabase.from("di_items").insert(filas);
+    if (errorInsert) {
+      console.error("construirYGuardarDiItems: insert di_items", errorInsert, filas[0]);
+      throw new Error(`No se pudo insertar di_items: ${errorInsert.message}`);
+    }
   }
 }
 
@@ -212,12 +221,20 @@ export async function poblarDiItemsDesdeDespacho(
     factorUsdPorConcepto.set(it.concepto, it.monto !== 0 ? it.monto_usd / it.monto : it.monto_usd);
   }
 
-  await construirYGuardarDiItems(contenedorId, documentoId, itemsDespachoRaw, factorUsdPorConcepto);
+  try {
+    await construirYGuardarDiItems(contenedorId, documentoId, itemsDespachoRaw, factorUsdPorConcepto);
+  } catch (err) {
+    console.error("poblarDiItemsDesdeDespacho", err);
+    return { error: err instanceof Error ? err.message : "Error desconocido al guardar los ítems del DI." };
+  }
 
-  const { count } = await supabase
+  const { count, error: errorCount } = await supabase
     .from("di_items")
     .select("id", { count: "exact", head: true })
     .eq("documento_id", documentoId);
+  if (errorCount) {
+    console.error("poblarDiItemsDesdeDespacho: count di_items", errorCount);
+  }
 
   revalidatePath(`/contenedores/${contenedorId}`);
   revalidatePath(`/contenedores/${contenedorId}/di-asignacion`);
