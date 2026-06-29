@@ -115,6 +115,11 @@ export function DiAsignacionEditor({ contenedorId, contenedorNumero, items, carp
         toast({ title: "No se pudo confirmar la asignación", description: resultado.error, variant: "destructive" });
         return;
       }
+      if (resultado.diagnostico) {
+        console.log("DIAGNOSTICO:", resultado.diagnostico);
+        // Temporal — sacar después de confirmar el bug del antidumping.
+        alert(JSON.stringify(resultado.diagnostico, null, 2));
+      }
       toast({ title: "Asignación confirmada", description: "Los costos reales por SKU se actualizaron." });
       router.refresh();
     });

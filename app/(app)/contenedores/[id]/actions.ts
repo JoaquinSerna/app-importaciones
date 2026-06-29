@@ -150,7 +150,7 @@ export interface AsignacionItemInput {
 export async function confirmarAsignacionDI(
   contenedorId: string,
   asignaciones: AsignacionItemInput[]
-): Promise<{ error?: string }> {
+): Promise<{ error?: string; diagnostico?: unknown }> {
   const supabase = createClient();
 
   const { data: diItems } = await supabase.from("di_items").select("*").eq("contenedor_id", contenedorId);
@@ -302,5 +302,15 @@ export async function confirmarAsignacionDI(
 
   revalidatePath(`/contenedores/${contenedorId}`);
   revalidatePath(`/contenedores/${contenedorId}/di-asignacion`);
-  return {};
+
+  // Diagnóstico temporal — sacar después de confirmar el bug
+  const diagnostico = {
+    antidumpingPorSkuEntries: Array.from(antidumpingPorSku.entries()),
+    montosPorSkuConceptoConDumping: Array.from(montosPorSkuConcepto.entries())
+      .filter(([k]) => k.includes("anti")),
+    totalPorCarpetaConceptoConDumping: Array.from(totalPorCarpetaConcepto.entries())
+      .filter(([k]) => k.includes("anti")),
+  };
+  console.log("[DIAG antidumping]", JSON.stringify(diagnostico, null, 2));
+  return { diagnostico };
 }
