@@ -216,6 +216,7 @@ export function SkusEditor({ carpetaId, skus, costos, costosSku = [] }: Props) {
               <TableHead className="text-center">Paga dumping</TableHead>
               <TableHead className="text-right">Cantidad</TableHead>
               <TableHead className="text-right">FOB unit.</TableHead>
+              <TableHead className="text-right">CBM</TableHead>
               <TableHead className="text-right">Costo total (est.)</TableHead>
               {hayReal && <TableHead className="text-right">Costo total (real)</TableHead>}
               <TableHead className="text-right">Costo unitario (est.)</TableHead>
@@ -269,6 +270,7 @@ export function SkusEditor({ carpetaId, skus, costos, costosSku = [] }: Props) {
                     </TableCell>
                     <TableCell className="text-right">{sku.cantidad}</TableCell>
                     <TableCell className="text-right">{formatUsd(sku.precio_unitario_fob_usd)}</TableCell>
+                    <TableCell className="text-right">{sku.cbm ? sku.cbm.toFixed(2) : "—"}</TableCell>
                     <TableCell className="text-right font-medium">{formatUsd(totalEst)}</TableCell>
                     {hayReal && <TableCell className="text-right font-medium">{formatUsd(totalReal)}</TableCell>}
                     <TableCell className="text-right font-medium">{formatUsd(unitarioEst)}</TableCell>
@@ -277,7 +279,7 @@ export function SkusEditor({ carpetaId, skus, costos, costosSku = [] }: Props) {
                   {expandido && desglose.length > 0 && (
                     <TableRow className="bg-muted/30">
                       <TableCell />
-                      <TableCell colSpan={hayReal ? 8 : 6} className="py-2">
+                      <TableCell colSpan={hayReal ? 9 : 7} className="py-2">
                         <div className="text-xs space-y-1">
                           <div className="flex justify-between font-medium text-muted-foreground">
                             <span>Concepto</span>

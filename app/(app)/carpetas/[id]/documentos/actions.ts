@@ -62,6 +62,74 @@ export async function subirYExtraerLiquidacion(
 // Solo pisa SKUs que todavía no tienen un nombre real (vacíos o que quedaron
 // con el código de NCM puesto automáticamente), y solo si la cantidad de
 // items coincide 1 a 1 con los SKUs.
+// Quita tildes, pasa a minúsculas y descarta palabras cortas o de relleno —
+// para comparar descripciones de la misma idea escritas con distinto orden o
+// idioma sin necesitar un match exacto.
+const PALABRAS_VACIAS = new Set([
+  "de", "la", "el", "los", "las", "con", "sin", "para", "por", "en", "y", "o", "del", "al",
+  "and", "with", "without", "for", "the", "a", "an", "of", "to",
+  "color", "colour", "talla", "size", "modelo", "model",
+]);
+
+const RANGO_DIACRITICOS = new RegExp(`[${String.fromCharCode(0x0300)}-${String.fromCharCode(0x036f)}]`, "g");
+
+function normalizarTexto(texto: string): string {
+  return texto.toLowerCase().normalize("NFD").replace(RANGO_DIACRITICOS, "");
+}
+
+function palabrasClave(texto: string): Set<string> {
+  return new Set(
+    normalizarTexto(texto)
+      .split(/[^a-z0-9]+/)
+      .filter((palabra) => palabra.length > 2 && !PALABRAS_VACIAS.has(palabra))
+  );
+}
+
+// Matchea un ítem del documento contra los SKUs cuya descripción comparte al
+// menos una palabra clave — a diferencia del match 1 a 1 por índice, sirve
+// aunque la cantidad de ítems no coincida con la cantidad de SKUs (ej. dos
+// variantes de color son SKUs separados pero un solo ítem en el Packing List).
+function encontrarSkusMatcheantes<T extends { descripcion: string | null; descripcion_es?: string | null }>(
+  skus: T[],
+  item: { descripcion?: string; descripcion_es?: string }
+): T[] {
+  const palabrasItem = palabrasClave(item.descripcion_es || item.descripcion || "");
+  if (palabrasItem.size === 0) return [];
+  return skus.filter((sku) => {
+    const palabrasSku = palabrasClave(sku.descripcion_es || sku.descripcion || "");
+    if (palabrasSku.size === 0) return false;
+    return Array.from(palabrasItem).some((palabra) => palabrasSku.has(palabra));
+  });
+}
+
+// El Packing List es la única fuente de CBM/peso por SKU. Se sincroniza por
+// matching semántico de descripción (no por índice) porque la cantidad de
+// ítems del Packing List no siempre coincide con la cantidad de SKUs — y a
+// diferencia de descripcion/cantidad/FOB, esto corre siempre (no solo en
+// placeholders), ya que no hay otro lugar donde el usuario los cargue.
+async function sincronizarCbmPesoPackingList(
+  supabase: ReturnType<typeof createClient>,
+  skus: { id: string; descripcion: string | null; descripcion_es?: string | null; cantidad: number | null }[],
+  items: { descripcion?: string; descripcion_es?: string; cbm?: number; peso_kg?: number }[]
+) {
+  for (const item of items) {
+    if (!item.cbm && !item.peso_kg) continue;
+    const skusMatch = encontrarSkusMatcheantes(skus, item);
+    if (skusMatch.length === 0) continue;
+
+    const cantidadTotal = skusMatch.reduce((acc, s) => acc + (s.cantidad ?? 1), 0);
+    for (const sku of skusMatch) {
+      const proporcion = cantidadTotal > 0 ? (sku.cantidad ?? 1) / cantidadTotal : 1 / skusMatch.length;
+      const update: Record<string, unknown> = {};
+      if (item.cbm) update.cbm = item.cbm * proporcion;
+      if (item.peso_kg) update.peso_kg = item.peso_kg * proporcion;
+      if (Object.keys(update).length > 0) {
+        await supabase.from("skus").update(update).eq("id", sku.id);
+      }
+    }
+  }
+}
+
 async function sincronizarDescripcionesDeUnDocumento(
   supabase: ReturnType<typeof createClient>,
   carpetaId: string,
@@ -87,6 +155,13 @@ async function sincronizarDescripcionesDeUnDocumento(
     cbm?: number;
     peso_kg?: number;
   }[];
+
+  // El CBM/peso se intenta sincronizar siempre, aunque los counts no
+  // coincidan — el matching es semántico, no por índice.
+  if (tipo === "packing_list" && items.length > 0) {
+    await sincronizarCbmPesoPackingList(supabase, skus, items);
+  }
+
   if (items.length === 0 || items.length !== skus.length) {
     return { actualizados: 0, itemsEncontrados: items.length };
   }
@@ -95,16 +170,6 @@ async function sincronizarDescripcionesDeUnDocumento(
   for (let i = 0; i < skus.length; i++) {
     const sku = skus[i];
     const item = items[i];
-
-    // El Packing List es la única fuente de CBM/peso por SKU — a diferencia de
-    // descripcion/cantidad/FOB, esto se sincroniza siempre (no solo en
-    // placeholders) porque no hay otro lugar donde el usuario los cargue.
-    if (tipo === "packing_list" && (item?.cbm || item?.peso_kg)) {
-      const updateCbmPeso: Record<string, unknown> = {};
-      if (item.cbm) updateCbmPeso.cbm = item.cbm;
-      if (item.peso_kg) updateCbmPeso.peso_kg = item.peso_kg;
-      await supabase.from("skus").update(updateCbmPeso).eq("id", sku.id);
-    }
 
     // La cantidad/precio unitario se sincronizan en su propio criterio,
     // INDEPENDIENTE del de la descripción: al crear la carpeta desde la
