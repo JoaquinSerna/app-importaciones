@@ -1,6 +1,5 @@
 "use server";
 
-import Anthropic from "@anthropic-ai/sdk";
 import { revalidatePath } from "next/cache";
 
 import { autoAnalizarCarpeta } from "@/app/(app)/carpetas/[id]/analizar-costos/actions";
@@ -169,10 +168,13 @@ interface SkuParaNombrar {
   ncm_aranceles: { codigo_ncm: string } | null;
 }
 
-// Cuando la cantidad de ítems del documento no coincide 1 a 1 con los SKUs
-// (típicamente porque dos productos con el mismo NCM se unificaron en un solo
-// SKU al crear la carpeta), le pedimos a la IA que agrupe los ítems según el
-// monto FOB de cada SKU en vez de pedirle al usuario que lo resuelva a mano.
+// Cada fila del documento es un SKU distinto e independiente — el NCM NUNCA
+// es criterio para agrupar SKUs (eso se aplica después, al prorratear
+// impuestos del DI). Cuando la cantidad de ítems no coincide con la cantidad
+// de SKUs ya cargados (porque la carpeta se creó agrupando por NCM), esta
+// función hace un matching 1 a 1 estricto por monto FOB más cercano contra
+// los SKUs existentes, y crea un SKU nuevo para cada ítem que sobre — nunca
+// combina dos ítems en un mismo SKU.
 async function agruparDescripcionesConIA(
   supabase: ReturnType<typeof createClient>,
   carpetaId: string,
@@ -200,87 +202,72 @@ async function agruparDescripcionesConIA(
 
   const itemsConMonto = items.map((it, i) => ({
     index: i,
-    descripcion: it.descripcion ?? it.descripcion_es ?? `Item ${i + 1}`,
+    descripcion: it.descripcion?.trim() || it.descripcion_es?.trim() || `Item ${i + 1}`,
+    descripcionEs: it.descripcion_es?.trim() || null,
     monto: it.total ?? (it.cantidad ?? 0) * (it.precio_unitario ?? 0),
-    cantidad: it.cantidad ?? 1,
+    cantidad: it.cantidad && it.cantidad > 0 ? it.cantidad : 1,
+    precioUnitario: it.precio_unitario ?? null,
   }));
 
   const skusInfo = skus.map((s, i) => ({
     index: i,
-    ncm: s.ncm_aranceles?.codigo_ncm ?? null,
     montoFob: (s.cantidad ?? 1) * (s.precio_unitario_fob_usd ?? 0),
   }));
 
-  const client = new Anthropic();
-  const response = await client.messages.create({
-    model: "claude-opus-4-8",
-    max_tokens: 2048,
-    messages: [{
-      role: "user",
-      content: `Tengo una lista de ítems de una proforma/packing list y una lista de SKUs (uno por NCM) de la misma carpeta. La cantidad de ítems NO coincide con la cantidad de SKUs porque a veces dos o más productos con el mismo NCM se agruparon en un solo SKU.
-
-Tu tarea: asignar cada ítem a UN SOLO SKU, agrupando los que correspondan, de forma que la suma de los montos de los ítems asignados a cada SKU sea lo más cercana posible al "montoFob" de ese SKU. Todos los ítems deben quedar asignados a algún SKU.
-
-SKUs (índice, NCM, monto FOB esperado):
-${skusInfo.map(s => `- SKU ${s.index}: NCM ${s.ncm ?? "?"}, monto FOB USD ${s.montoFob.toFixed(2)}`).join("\n")}
-
-Ítems (índice, descripción, monto):
-${itemsConMonto.map(it => `- Item ${it.index}: "${it.descripcion}" — USD ${it.monto.toFixed(2)}`).join("\n")}
-
-Para el campo "descripcion_es" de cada asignación, traducí SIEMPRE al español el/los producto(s) asignados, sin importar en qué idioma estén los ítems originales (inglés, chino, etc). Que sea corto y descriptivo, sin código de producto ni medidas de empaque — ej: "Guante de cuero AB grade", "Botas PVC aislación eléctrica 6KV", "Casco HDPE cuatro puntos". Si agrupás más de un ítem, combiná los nombres con " + ".
-
-Respondé SOLO con JSON válido, sin texto adicional:
-{
-  "asignaciones": [
-    {
-      "skuIndex": número,
-      "descripcion_es": "nombre corto y descriptivo en español de los ítems asignados a este SKU",
-      "itemIndices": [índices de los ítems que asignaste a este SKU]
+  // Greedy: para cada SKU existente (de mayor a menor FOB esperado), le
+  // asigno el ítem libre cuyo monto sea el más parecido. Cada ítem se usa
+  // como máximo una vez — nunca se reparte entre dos SKUs ni se combina.
+  const itemsLibres = new Set(itemsConMonto.map((it) => it.index));
+  const asignacionPorSku = new Map<number, number>(); // skuIndex -> itemIndex
+  for (const sku of [...skusInfo].sort((a, b) => b.montoFob - a.montoFob)) {
+    let mejorItem: number | null = null;
+    let mejorDiferencia = Infinity;
+    for (const itemIndex of Array.from(itemsLibres)) {
+      const diferencia = Math.abs(itemsConMonto[itemIndex].monto - sku.montoFob);
+      if (diferencia < mejorDiferencia) {
+        mejorDiferencia = diferencia;
+        mejorItem = itemIndex;
+      }
     }
-  ]
-}`,
-    }],
-  });
-
-  const text = response.content.find((c) => c.type === "text")?.text ?? "";
-  const jsonMatch = text.match(/\{[\s\S]*\}/);
-  if (!jsonMatch) return 0;
-
-  const resultado = JSON.parse(jsonMatch[0]) as {
-    asignaciones: { skuIndex: number; descripcion_es: string; itemIndices?: number[] }[];
-  };
-
-  if (resultado.asignaciones.length === 0) {
-    console.error("agruparDescripcionesConIA: la IA no devolvió asignaciones");
+    if (mejorItem !== null) {
+      asignacionPorSku.set(sku.index, mejorItem);
+      itemsLibres.delete(mejorItem);
+    }
   }
 
   let actualizados = 0;
-  for (const asignacion of resultado.asignaciones) {
-    const sku = skus[asignacion.skuIndex];
-    if (!sku) continue;
-    if (!asignacion.descripcion_es?.trim()) continue;
-
-    const update: Record<string, unknown> = { descripcion_es: asignacion.descripcion_es.trim() };
-    const itemsAsignados = (asignacion.itemIndices ?? [])
-      .map((i) => itemsConMonto[i])
-      .filter((it): it is (typeof itemsConMonto)[number] => !!it);
-    const descripcionOriginalCombinada = itemsAsignados.map((it) => it.descripcion).filter(Boolean).join(" + ");
-    if (descripcionOriginalCombinada) update.descripcion = descripcionOriginalCombinada;
-    if (itemsAsignados.length > 0) {
-      const cantidadTotal = itemsAsignados.reduce((a, it) => a + it.cantidad, 0);
-      const montoTotal = itemsAsignados.reduce((a, it) => a + it.monto, 0);
-      if (cantidadTotal > 0 && montoTotal > 0) {
-        update.cantidad = cantidadTotal;
-        update.precio_unitario_fob_usd = montoTotal / cantidadTotal;
-      }
+  for (const [skuIndex, itemIndex] of Array.from(asignacionPorSku.entries())) {
+    const sku = skus[skuIndex];
+    const item = itemsConMonto[itemIndex];
+    const update: Record<string, unknown> = { descripcion: item.descripcion };
+    if (item.descripcionEs) update.descripcion_es = item.descripcionEs;
+    if (item.cantidad > 0) {
+      update.cantidad = item.cantidad;
+      update.precio_unitario_fob_usd = item.precioUnitario ?? item.monto / item.cantidad;
     }
-
     await supabase.from("skus").update(update).eq("id", sku.id);
     actualizados++;
   }
 
-  if (actualizados === 0 && resultado.asignaciones.length > 0) {
-    console.error("agruparDescripcionesConIA: todas las asignaciones fueron descartadas (sin descripción válida)");
+  // Ítems que no encontraron SKU existente para emparejar (porque hay más
+  // ítems en el documento que SKUs cargados): se crea un SKU nuevo por cada
+  // uno, nunca se fusionan con otro.
+  const itemsSinSku = Array.from(itemsLibres).map((i) => itemsConMonto[i]);
+  if (itemsSinSku.length > 0) {
+    const { error } = await supabase.from("skus").insert(
+      itemsSinSku.map((item) => ({
+        carpeta_id: carpetaId,
+        descripcion: item.descripcion,
+        descripcion_es: item.descripcionEs,
+        cantidad: item.cantidad,
+        precio_unitario_fob_usd: item.precioUnitario ?? (item.cantidad > 0 ? item.monto / item.cantidad : item.monto),
+      }))
+    );
+    if (error) {
+      console.error("agruparDescripcionesConIA: insert SKUs nuevos", error);
+    } else {
+      actualizados += itemsSinSku.length;
+    }
   }
 
   return actualizados;
