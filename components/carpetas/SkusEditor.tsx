@@ -51,9 +51,10 @@ interface Props {
   ncms: NcmArancel[];
   costos: CostoSimple[];
   costosSku?: CostoSku[];
+  diConfirmado?: boolean;
 }
 
-export function SkusEditor({ carpetaId, skus, costos, costosSku = [] }: Props) {
+export function SkusEditor({ carpetaId, skus, costos, costosSku = [], diConfirmado = false }: Props) {
   const { toast } = useToast();
   const [isPending, startTransition] = useTransition();
   const [expandidos, setExpandidos] = useState<Set<string>>(new Set());
@@ -260,12 +261,21 @@ export function SkusEditor({ carpetaId, skus, costos, costosSku = [] }: Props) {
                       )}
                     </TableCell>
                     <TableCell className="text-center">
+                      {/* Cuando hay un DI confirmado, paga_dumping lo calcula confirmarAsignacionDI:
+                          se evita `disabled` nativo (que lo apaga a gris) para que siga
+                          comunicando el estado con color, pero no se permite tildarlo a mano. */}
                       <input
                         type="checkbox"
                         checked={sku.paga_dumping}
                         disabled={isPending}
-                        onChange={() => handleTogglePagaDumping(sku)}
-                        className="h-4 w-4"
+                        onChange={() => {
+                          if (!diConfirmado) handleTogglePagaDumping(sku);
+                        }}
+                        onClick={(e) => {
+                          if (diConfirmado) e.preventDefault();
+                        }}
+                        className={`h-4 w-4 accent-cac-blue ${diConfirmado ? "cursor-not-allowed" : ""}`}
+                        title={diConfirmado ? "Asignado automáticamente desde el DI" : undefined}
                       />
                     </TableCell>
                     <TableCell className="text-right">{sku.cantidad}</TableCell>

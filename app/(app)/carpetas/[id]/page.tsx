@@ -62,6 +62,15 @@ export default async function CarpetaDetallePage({ params }: { params: { id: str
     ? await supabase.from("costos_sku").select("sku_id, concepto, monto_real_usd").in("sku_id", skuIds)
     : { data: [] };
   const costosSkuList = (costosSku ?? []) as { sku_id: string; concepto: string; monto_real_usd: number }[];
+
+  // Si ya se confirmó una asignación del DI para esta carpeta, paga_dumping
+  // pasa a ser informativo (lo calcula confirmarAsignacionDI) en vez de editable.
+  const { data: diItemSkusCarpeta } = await supabase
+    .from("di_item_skus")
+    .select("id")
+    .eq("carpeta_id", params.id)
+    .limit(1);
+  const diConfirmado = (diItemSkusCarpeta ?? []).length > 0;
   const carpetaTyped = carpeta as Carpeta & { proveedores?: { nombre: string; foto_url: string | null } | null };
 
   const fotoUrlOriginal = carpetaTyped.proveedores?.foto_url ?? null;
@@ -192,6 +201,7 @@ export default async function CarpetaDetallePage({ params }: { params: { id: str
               ncm_codigo: c.ncm_codigo ?? null,
             }))}
             costosSku={costosSkuList}
+            diConfirmado={diConfirmado}
           />
         </TabsContent>
 
