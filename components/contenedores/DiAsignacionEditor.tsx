@@ -7,7 +7,7 @@ import { Loader2, Sparkles } from "lucide-react";
 import { asignarItemsDI, confirmarAsignacionDI, type AsignacionItemInput, type DiItem } from "@/app/(app)/contenedores/[id]/actions";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import {
   Select,
   SelectContent,
