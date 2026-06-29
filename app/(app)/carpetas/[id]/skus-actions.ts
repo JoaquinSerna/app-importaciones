@@ -2,25 +2,14 @@
 
 import { revalidatePath } from "next/cache";
 
-import { resincronizarAntiDumpingDeContenedor } from "@/app/(app)/contenedores/[id]/documentos/actions";
 import { calcularArancelPonderado, calcularCascada, costosComoLineas } from "@/lib/calculadora-costos";
 import { createClient } from "@/lib/supabase/server";
 import type { NcmArancel, ParametrosGlobales, TipoImportacion } from "@/lib/types";
 
-// Cuando se marca/desmarca un SKU como "paga dumping" hay que re-prorratear
-// el anti-dumping del despacho entre los SKUs marcados, en TODOS los
-// contenedores a los que esté asignada esta carpeta.
-async function resincronizarAntiDumpingDeCarpeta(carpetaId: string) {
-  const supabase = createClient();
-  const { data: asignaciones } = await supabase
-    .from("carpeta_contenedores")
-    .select("contenedor_id")
-    .eq("carpeta_id", carpetaId);
-  for (const a of asignaciones ?? []) {
-    await resincronizarAntiDumpingDeContenedor(a.contenedor_id);
-  }
-}
-
+// El anti-dumping ya no se prorratea por este flag: lo calcula
+// confirmarAsignacionDI a partir de la asignación del despacho a cada SKU
+// (ver app/(app)/contenedores/[id]/actions.ts). Este flag queda como
+// referencia de qué SKUs paga(ron) anti-dumping en la última asignación.
 export async function actualizarPagaDumping(carpetaId: string, skuId: string, pagaDumping: boolean): Promise<{ error?: string }> {
   const supabase = createClient();
   const { error } = await supabase.from("skus").update({ paga_dumping: pagaDumping }).eq("id", skuId);
@@ -28,7 +17,6 @@ export async function actualizarPagaDumping(carpetaId: string, skuId: string, pa
     console.error("actualizarPagaDumping", error);
     return { error: error.message };
   }
-  await resincronizarAntiDumpingDeCarpeta(carpetaId);
   revalidatePath(`/carpetas/${carpetaId}`);
   return {};
 }

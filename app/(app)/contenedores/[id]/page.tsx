@@ -3,6 +3,7 @@ import Link from "next/link";
 
 import { DocumentosContenedor } from "@/components/contenedores/DocumentosContenedor";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Table,
@@ -41,7 +42,7 @@ export default async function ContenedorDetallePage({ params }: { params: { id: 
 
   const contenedorTyped = contenedor as Contenedor;
 
-  const [{ data: asignacionesCarpetas }, { data: costosContenedor }, { data: criterios }, { data: documentos }] = await Promise.all([
+  const [{ data: asignacionesCarpetas }, { data: costosContenedor }, { data: criterios }, { data: documentos }, { data: diItems }] = await Promise.all([
     supabase
       .from("carpeta_contenedores")
       .select("cbm_asignado, carpetas(*, proveedores(nombre))")
@@ -49,7 +50,10 @@ export default async function ContenedorDetallePage({ params }: { params: { id: 
     supabase.from("costos").select("*").eq("nivel", "contenedor").eq("contenedor_id", params.id),
     supabase.from("criterios_prorrateo").select("*").eq("contenedor_id", params.id),
     supabase.from("documentos").select("*").eq("contenedor_id", params.id).order("created_at"),
+    supabase.from("di_items").select("id, confirmado").eq("contenedor_id", params.id),
   ]);
+
+  const diItemsPendientes = (diItems ?? []).filter((it) => !it.confirmado).length;
 
   type CarpetaConProveedor = Carpeta & { proveedores?: { nombre: string } | null };
   const carpetasList = (asignacionesCarpetas ?? [])
@@ -121,7 +125,16 @@ export default async function ContenedorDetallePage({ params }: { params: { id: 
           <h1 className="text-2xl font-semibold">{contenedorTyped.numero_contenedor ?? "(sin número)"}</h1>
           <p className="text-muted-foreground">Contenedor {contenedorTyped.tipo}</p>
         </div>
-        <Badge variant="secondary">{contenedorTyped.tipo}</Badge>
+        <div className="flex items-center gap-2">
+          {diItems && diItems.length > 0 && (
+            <Button asChild variant={diItemsPendientes > 0 ? "default" : "outline"} size="sm">
+              <Link href={`/contenedores/${params.id}/di-asignacion`}>
+                {diItemsPendientes > 0 ? `Asignar DI (${diItemsPendientes} pendiente${diItemsPendientes > 1 ? "s" : ""})` : "Reasignar DI"}
+              </Link>
+            </Button>
+          )}
+          <Badge variant="secondary">{contenedorTyped.tipo}</Badge>
+        </div>
       </div>
 
       <Tabs defaultValue="resumen">

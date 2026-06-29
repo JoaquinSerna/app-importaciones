@@ -266,6 +266,7 @@ Reglas generales que se desprenden de este ejemplo, aplicalas a TODAS las filas 
   "items": [
     {
       "item": número de ítem,
+      "descripcion": "descripción larga del producto que figura en ese ítem (la que identifica la mercadería, no la clasificación arancelaria)",
       "ncm": "código NCM de 8 dígitos",
       "conceptos": [
         { "concepto": "nombre del concepto YA CLASIFICADO según la lista de arriba (ej: 'Tasa estadística', no 'TASA ESTAD MONT MAX')", "monto": número }
@@ -346,6 +347,7 @@ export async function extraerDatosDocumento(
 
 interface ItemDespachoExtraido {
   item: number;
+  descripcion?: string;
   ncm: string;
   conceptos: { concepto: string; monto: number }[];
 }
