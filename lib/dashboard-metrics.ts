@@ -54,6 +54,35 @@ export function tieneHitoVencido(carpeta: Carpeta): boolean {
   return calcularAlertas(carpeta).some((a) => a.severidad === "danger");
 }
 
+export interface ProximoArribo {
+  carpetaId: string;
+  titulo: string;
+  numeroCarpeta: string;
+  dias: number;
+}
+
+/**
+ * Carpeta activa (no finalizada, sin arribo real) con el ETA más próximo en
+ * el futuro. Null si ninguna carpeta activa tiene ETA cargado o ya pasaron.
+ */
+export function proximoArribo(carpetas: CarpetaConCostos[]): ProximoArribo | null {
+  const candidatas = carpetas
+    .filter((c) => c.estado !== "finalizada" && !c.fecha_arribo_real)
+    .map((c) => ({ carpeta: c, dias: diasHastaEta(c) }))
+    .filter((c): c is { carpeta: CarpetaConCostos; dias: number } => c.dias !== null && c.dias >= 0)
+    .sort((a, b) => a.dias - b.dias);
+
+  const proxima = candidatas[0];
+  if (!proxima) return null;
+
+  return {
+    carpetaId: proxima.carpeta.id,
+    titulo: proxima.carpeta.titulo || proxima.carpeta.numero_carpeta,
+    numeroCarpeta: proxima.carpeta.numero_carpeta,
+    dias: proxima.dias,
+  };
+}
+
 export function calcularMetricas(carpetas: CarpetaConCostos[]): MetricasDashboard {
   const activas = carpetas.filter((c) => ESTADOS_ACTIVOS.includes(c.estado));
 
