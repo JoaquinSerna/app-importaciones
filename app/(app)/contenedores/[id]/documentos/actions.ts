@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 
 import { autoAnalizarCarpeta } from "@/app/(app)/carpetas/[id]/analizar-costos/actions";
+import { asignarYConfirmarDI } from "@/app/(app)/contenedores/[id]/actions";
 import { familiaTributo } from "@/lib/ncm-match";
 import { construirItemsCostosDespacho, extraerDatosDocumento, normalizarConceptoDespacho } from "@/lib/pdf-extractor-documentos";
 import { createClient } from "@/lib/supabase/server";
@@ -252,7 +253,7 @@ export async function confirmarMonedasDespacho(
   contenedorId: string,
   items: { concepto: string; monto: number; moneda: "USD" | "ARS" }[],
   tipoCambio: number | null
-) {
+): Promise<{ asignadosIA?: number; errorIA?: string }> {
   const supabase = createClient();
 
   const hayArs = items.some((i) => i.moneda === "ARS");
@@ -296,11 +297,22 @@ export async function confirmarMonedasDespacho(
   }
   const itemsDespachoRaw = (datosPrevios.items ?? []) as ItemDespachoConMonedaUsd[];
 
-  // El matching a carpeta/SKU ya no es automático por NCM: queda guardado en
-  // di_items para que el comprador lo revise y confirme en
-  // /contenedores/[id]/di-asignacion (ver asignarItemsDI / confirmarAsignacionDI).
-  await construirYGuardarDiItems(contenedorId, documentoId, itemsDespachoRaw, factorUsdPorConcepto);
+  // El matching a carpeta/SKU ya no es automático por NCM: se guarda en
+  // di_items y se le pide a la IA que lo asigne y confirme en el mismo paso
+  // (ver asignarYConfirmarDI), para no obligar a otro click manual cuando
+  // la sugerencia ya viene bien. Si la IA no puede, queda igual disponible
+  // para revisión manual en /contenedores/[id]/di-asignacion.
+  let resultadoIA: { asignadosIA?: number; errorIA?: string } = {};
+  try {
+    await construirYGuardarDiItems(contenedorId, documentoId, itemsDespachoRaw, factorUsdPorConcepto);
+    const asignacion = await asignarYConfirmarDI(contenedorId);
+    resultadoIA = asignacion.error ? { errorIA: asignacion.error } : { asignadosIA: asignacion.asignados };
+  } catch (err) {
+    console.error("confirmarMonedasDespacho: asignación automática por IA", err);
+    resultadoIA = { errorIA: err instanceof Error ? err.message : "Error desconocido al asignar con IA." };
+  }
 
   revalidatePath(`/contenedores/${contenedorId}`);
   revalidatePath(`/contenedores/${contenedorId}/di-asignacion`);
+  return resultadoIA;
 }

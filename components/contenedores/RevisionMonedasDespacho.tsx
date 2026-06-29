@@ -72,7 +72,7 @@ export function RevisionMonedasDespacho({
     }
     startTransition(async () => {
       try {
-        await confirmarMonedasDespacho(
+        const resultado = await confirmarMonedasDespacho(
           documentoId,
           contenedorId,
           itemsCostos.map((item, i) => ({
@@ -82,7 +82,17 @@ export function RevisionMonedasDespacho({
           })),
           hayArs ? tcNumero : null
         );
-        toast({ title: "Monedas confirmadas", description: "Los costos reales se sincronizaron con la carpeta." });
+        if (resultado.errorIA) {
+          toast({
+            title: "Monedas confirmadas",
+            description: `No se pudo asignar el DI automáticamente (${resultado.errorIA}). Revisalo en "Asignar/Reasignar DI".`,
+          });
+        } else {
+          toast({
+            title: "Monedas confirmadas",
+            description: `Los costos reales se sincronizaron con la carpeta y la IA asignó ${resultado.asignadosIA ?? 0} ítem(s) del DI.`,
+          });
+        }
       } catch (err) {
         toast({
           title: "Error",
