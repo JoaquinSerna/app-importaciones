@@ -54,6 +54,7 @@ export default async function ContenedorDetallePage({ params }: { params: { id: 
   ]);
 
   const diItemsPendientes = (diItems ?? []).filter((it) => !it.confirmado).length;
+  const hayDespachoExtraido = (documentos ?? []).some((d) => d.tipo === "despacho_aduana" && d.estado === "extraido");
 
   type CarpetaConProveedor = Carpeta & { proveedores?: { nombre: string } | null };
   const carpetasList = (asignacionesCarpetas ?? [])
@@ -126,10 +127,14 @@ export default async function ContenedorDetallePage({ params }: { params: { id: 
           <p className="text-muted-foreground">Contenedor {contenedorTyped.tipo}</p>
         </div>
         <div className="flex items-center gap-2">
-          {diItems && diItems.length > 0 && (
-            <Button asChild variant={diItemsPendientes > 0 ? "default" : "outline"} size="sm">
+          {hayDespachoExtraido && (
+            <Button asChild variant={diItemsPendientes > 0 || !diItems?.length ? "default" : "outline"} size="sm">
               <Link href={`/contenedores/${params.id}/di-asignacion`}>
-                {diItemsPendientes > 0 ? `Asignar DI (${diItemsPendientes} pendiente${diItemsPendientes > 1 ? "s" : ""})` : "Reasignar DI"}
+                {diItems?.length
+                  ? diItemsPendientes > 0
+                    ? `Asignar DI (${diItemsPendientes} pendiente${diItemsPendientes > 1 ? "s" : ""})`
+                    : "Reasignar DI"
+                  : "Asignar ítems del DI a carpetas"}
               </Link>
             </Button>
           )}
