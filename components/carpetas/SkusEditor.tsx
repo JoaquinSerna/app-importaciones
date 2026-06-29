@@ -1,10 +1,8 @@
 "use client";
 
 import { Fragment, useMemo, useState, useTransition } from "react";
-import { Loader2, RefreshCw, Tag } from "lucide-react";
 
-import { actualizarNombresSkusDesdeDocumentos } from "@/app/(app)/carpetas/[id]/documentos/actions";
-import { actualizarPagaDumping, recalcularCostosDesdeSkus } from "@/app/(app)/carpetas/[id]/skus-actions";
+import { actualizarPagaDumping } from "@/app/(app)/carpetas/[id]/skus-actions";
 import { Button } from "@/components/ui/button";
 import {
   Table,
@@ -141,19 +139,6 @@ export function SkusEditor({ carpetaId, skus, costos, costosSku = [], diConfirma
     });
   }
 
-  const ncmsDistintos = new Set(skus.map((s) => s.ncm_id).filter(Boolean)).size;
-
-  function handleRecalcular() {
-    startTransition(async () => {
-      const resultado = await recalcularCostosDesdeSkus(carpetaId);
-      if (resultado.error) {
-        toast({ title: "No se pudo recalcular", description: resultado.error, variant: "destructive" });
-        return;
-      }
-      toast({ title: "Costos recalculados con el NCM ponderado de los SKUs" });
-    });
-  }
-
   function handleTogglePagaDumping(sku: Sku) {
     startTransition(async () => {
       const resultado = await actualizarPagaDumping(carpetaId, sku.id, !sku.paga_dumping);
@@ -163,46 +148,12 @@ export function SkusEditor({ carpetaId, skus, costos, costosSku = [], diConfirma
     });
   }
 
-  function handleActualizarNombres() {
-    startTransition(async () => {
-      const resultado = await actualizarNombresSkusDesdeDocumentos(carpetaId);
-      if (resultado.error) {
-        toast({ title: "No se pudieron asignar nombres", description: resultado.error, variant: "destructive" });
-        return;
-      }
-      if (!resultado.actualizados) {
-        toast({ title: "Nada para actualizar", description: "Los nombres ya estaban asignados." });
-        return;
-      }
-      toast({ title: `${resultado.actualizados} nombre(s) actualizados desde la Proforma/Packing List` });
-    });
-  }
-
   if (skus.length === 0) {
     return <p className="text-sm text-muted-foreground">Sin SKUs cargados.</p>;
   }
 
   return (
     <div className="space-y-3">
-      <div className="flex justify-end">
-        <Button size="sm" variant="outline" onClick={handleActualizarNombres} disabled={isPending}>
-          {isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> : <Tag className="h-3.5 w-3.5 mr-1" />}
-          Actualizar nombres desde Proforma/Packing List
-        </Button>
-      </div>
-
-      {ncmsDistintos > 1 && (
-        <div className="rounded-md border bg-amber-50 border-amber-200 px-3 py-2 text-sm flex items-center justify-between gap-3">
-          <span className="text-amber-800">
-            Esta carpeta tiene {ncmsDistintos} NCM distintos entre sus SKUs. Recalculá los costos para usar el promedio ponderado por FOB.
-          </span>
-          <Button size="sm" variant="outline" onClick={handleRecalcular} disabled={isPending}>
-            {isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> : <RefreshCw className="h-3.5 w-3.5 mr-1" />}
-            Recalcular costos
-          </Button>
-        </div>
-      )}
-
       <div className="space-y-2">
         <h3 className="text-sm font-medium">Costo por unidad (landed cost)</h3>
         <p className="text-xs text-muted-foreground">

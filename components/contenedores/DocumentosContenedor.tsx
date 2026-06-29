@@ -1,11 +1,10 @@
 "use client";
 
 import { useRef, useTransition } from "react";
-import { CheckCircle, Download, FileText, Loader2, Upload, XCircle } from "lucide-react";
+import { AlertTriangle, CheckCircle, Download, FileText, Loader2, Upload, XCircle } from "lucide-react";
 
 import {
   eliminarDocumentoContenedor,
-  poblarDiItemsDesdeDespacho,
   subirDocumentoContenedor,
 } from "@/app/(app)/contenedores/[id]/documentos/actions";
 import { obtenerUrlDescarga } from "@/app/actions/storage";
@@ -13,8 +12,6 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useToast } from "@/components/ui/use-toast";
 import type { Documento, TipoDocumento } from "@/lib/types";
-import { RevisarItemsDespacho } from "./RevisarItemsDespacho";
-import { RevisionMonedasDespacho } from "./RevisionMonedasDespacho";
 
 interface SlotConfig {
   tipo: TipoDocumento;
@@ -254,52 +251,33 @@ function DocumentoSlot({
   );
 }
 
-interface NcmPorCarpeta {
-  ncmCodigo: string;
-  carpetaId: string;
-  carpetaLabel: string;
+interface DiItemResumen {
+  confirmado: boolean;
+  confianza: number | null;
 }
 
 interface DocumentosContenedorProps {
   contenedorId: string;
   documentos: Documento[];
-  ncmPorCarpeta: NcmPorCarpeta[];
+  diItems?: DiItemResumen[];
 }
 
-export function DocumentosContenedor({ contenedorId, documentos, ncmPorCarpeta }: DocumentosContenedorProps) {
-  const { toast } = useToast();
-  const [isPendingDi, startTransitionDi] = useTransition();
+export function DocumentosContenedor({ contenedorId, documentos, diItems = [] }: DocumentosContenedorProps) {
   const byTipo = Object.fromEntries(documentos.map((d) => [d.tipo, d])) as Partial<
     Record<TipoDocumento, Documento>
   >;
 
   const despacho = byTipo["despacho_aduana"];
   const datosDespacho = despacho?.datos_extraidos as Record<string, unknown> | undefined;
-  const itemsCostosRaw = datosDespacho?.items_costos as { concepto: string; monto: number }[] | undefined;
-  const itemsVerificados = datosDespacho?.items_verificados === true;
   const itemsDespachoRaw = (datosDespacho?.items ?? []) as {
     item: number;
     ncm?: string;
     conceptos?: { concepto: string; monto: number }[];
   }[];
-  const monedasConfirmadas = datosDespacho?.monedas_confirmadas === true;
-  const itemsCostosConfirmados = datosDespacho?.items_costos_confirmados as
-    | { concepto: string; monto: number; moneda: "USD" | "ARS"; monto_usd: number }[]
-    | undefined;
-  const tipoCambioInicial = (datosDespacho?.tipo_cambio as number | null) ?? null;
-  const totalConfirmado = (itemsCostosConfirmados ?? []).reduce((a, i) => a + i.monto_usd, 0);
 
-  function handlePoblarDiItems() {
-    if (!despacho) return;
-    startTransitionDi(async () => {
-      const resultado = await poblarDiItemsDesdeDespacho(contenedorId, despacho.id);
-      if (resultado.error) {
-        toast({ title: "No se pudieron cargar los ítems del DI", description: resultado.error, variant: "destructive" });
-        return;
-      }
-      toast({ title: `${resultado.insertados ?? 0} ítem(s) del DI cargados`, description: "Ya podés asignarlos a carpetas y SKUs." });
-    });
-  }
+  const diItemsConfirmados = diItems.filter((it) => it.confirmado).length;
+  const diItemsBajaConfianza = diItems.filter((it) => it.confianza !== null && it.confianza < 0.75).length;
+  const diItemsSinAsignar = diItems.length - diItemsConfirmados;
 
   return (
     <div className="space-y-6">
@@ -319,70 +297,44 @@ export function DocumentosContenedor({ contenedorId, documentos, ncmPorCarpeta }
         </CardContent>
       </Card>
 
-      {despacho && despacho.estado === "extraido" && !itemsVerificados && (
-        <RevisarItemsDespacho
-          documentoId={despacho.id}
-          contenedorId={contenedorId}
-          itemsIniciales={itemsDespachoRaw.map((it) => ({
-            item: it.item,
-            ncm: it.ncm ?? "",
-            conceptos: it.conceptos ?? [],
-          }))}
-          ncmPorCarpeta={ncmPorCarpeta}
-        />
-      )}
-
-      {despacho && itemsVerificados && itemsCostosRaw && itemsCostosRaw.length > 0 && !monedasConfirmadas && (
-        <RevisionMonedasDespacho
-          documentoId={despacho.id}
-          contenedorId={contenedorId}
-          itemsCostos={itemsCostosRaw}
-          tipoCambioInicial={tipoCambioInicial}
-        />
-      )}
-
-      {monedasConfirmadas && itemsCostosConfirmados && itemsCostosConfirmados.length > 0 && (
+      {despacho && despacho.estado === "extraido" && (
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Resumen costos reales (del despacho)</CardTitle>
+            <CardTitle className="text-base">Procesamiento del despacho de aduana</CardTitle>
           </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-3">
-              {itemsCostosConfirmados.map((item) => (
-                <div key={item.concepto}>
-                  <p className="text-xs text-muted-foreground">
-                    {item.concepto} <span className="text-muted-foreground/60">({item.moneda})</span>
-                  </p>
-                  <p className="font-medium">
-                    USD {item.monto_usd.toLocaleString("es-AR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                  </p>
-                </div>
-              ))}
-            </div>
-            <div className="border-t pt-2 flex justify-between items-center">
-              <span className="text-sm font-medium">Total</span>
-              <span className="text-base font-bold">
-                USD {totalConfirmado.toLocaleString("es-AR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-              </span>
-            </div>
-            <div className="border-t pt-3">
-              <Button size="sm" variant="outline" onClick={handlePoblarDiItems} disabled={isPendingDi}>
-                {isPendingDi ? (
-                  <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />
-                ) : (
-                  <FileText className="h-3.5 w-3.5 mr-1" />
-                )}
-                Cargar ítems del DI ({itemsDespachoRaw.length || "?"} ítems)
-              </Button>
-              <p className="mt-1 text-xs text-muted-foreground">
-                Usalo si confirmaste las monedas de este despacho antes de que existiera la asignación por ítem —
-                vuelve a generar los ítems del DI sin pedirte que confirmes de nuevo.
+          <CardContent className="space-y-2 text-sm">
+            <p className="flex items-center gap-2">
+              <FileText className="h-4 w-4 text-muted-foreground" />
+              {itemsDespachoRaw.length} ítem(s) extraídos del DI.
+            </p>
+            {diItems.length === 0 ? (
+              <p className="flex items-center gap-2 text-muted-foreground">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Asignando ítems a carpetas con IA y aplicando costos…
               </p>
-            </div>
+            ) : (
+              <>
+                <p className="flex items-center gap-2 text-green-700">
+                  <CheckCircle className="h-4 w-4" />
+                  Costos aplicados — {diItemsConfirmados} de {diItems.length} ítem(s) asignados y confirmados.
+                </p>
+                {diItemsSinAsignar > 0 && (
+                  <p className="flex items-center gap-2 text-amber-700">
+                    <AlertTriangle className="h-4 w-4" />
+                    {diItemsSinAsignar} ítem(s) sin asignar — revisalos en &quot;Asignar/Reasignar DI&quot;.
+                  </p>
+                )}
+                {diItemsBajaConfianza > 0 && (
+                  <p className="flex items-center gap-2 text-amber-700">
+                    <AlertTriangle className="h-4 w-4" />
+                    {diItemsBajaConfianza} ítem(s) con confianza baja — revisá que la asignación sea correcta.
+                  </p>
+                )}
+              </>
+            )}
           </CardContent>
         </Card>
       )}
-
     </div>
   );
 }

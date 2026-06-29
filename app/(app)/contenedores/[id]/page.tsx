@@ -50,10 +50,11 @@ export default async function ContenedorDetallePage({ params }: { params: { id: 
     supabase.from("costos").select("*").eq("nivel", "contenedor").eq("contenedor_id", params.id),
     supabase.from("criterios_prorrateo").select("*").eq("contenedor_id", params.id),
     supabase.from("documentos").select("*").eq("contenedor_id", params.id).order("created_at"),
-    supabase.from("di_items").select("id, confirmado").eq("contenedor_id", params.id),
+    supabase.from("di_items").select("id, confirmado, confianza").eq("contenedor_id", params.id),
   ]);
 
   const diItemsPendientes = (diItems ?? []).filter((it) => !it.confirmado).length;
+  const diItemsBajaConfianza = (diItems ?? []).filter((it) => it.confianza !== null && it.confianza < 0.75).length;
   const hayDespachoExtraido = (documentos ?? []).some((d) => d.tipo === "despacho_aduana" && d.estado === "extraido");
 
   type CarpetaConProveedor = Carpeta & { proveedores?: { nombre: string } | null };
@@ -64,25 +65,6 @@ export default async function ContenedorDetallePage({ params }: { params: { id: 
       cbm_asignado_aqui: a.cbm_asignado as number,
     }));
 
-  // NCM de los SKUs de cada carpeta asignada — para mostrar, en la revisión
-  // del despacho, a qué carpeta corresponde cada ítem (por su NCM).
-  const carpetaIds = carpetasList.map((c) => c.id);
-  const { data: skusContenedor } = carpetaIds.length > 0
-    ? await supabase
-        .from("skus")
-        .select("carpeta_id, ncm_aranceles(codigo_ncm)")
-        .in("carpeta_id", carpetaIds)
-        .not("ncm_id", "is", null)
-    : { data: [] };
-
-  const numeroPorCarpetaId = new Map(carpetasList.map((c) => [c.id, c.titulo || c.numero_carpeta]));
-  const ncmPorCarpeta = (skusContenedor ?? [])
-    .map((s) => ({
-      ncmCodigo: (s.ncm_aranceles as unknown as { codigo_ncm: string } | null)?.codigo_ncm ?? null,
-      carpetaId: s.carpeta_id,
-      carpetaLabel: numeroPorCarpetaId.get(s.carpeta_id) ?? "—",
-    }))
-    .filter((s): s is { ncmCodigo: string; carpetaId: string; carpetaLabel: string } => !!s.ncmCodigo);
   const costosList = (costosContenedor ?? []) as Costo[];
   const criteriosList = (criterios ?? []) as CriterioProrrateo[];
 
@@ -141,6 +123,26 @@ export default async function ContenedorDetallePage({ params }: { params: { id: 
           <Badge variant="secondary">{contenedorTyped.tipo}</Badge>
         </div>
       </div>
+
+      {diItemsBajaConfianza > 0 && (
+        <div className="flex items-center justify-between gap-3 rounded-lg border border-amber-200 bg-amber-50 p-4">
+          <div className="flex items-center gap-3">
+            <span className="text-amber-600">⚠️</span>
+            <div>
+              <p className="font-medium text-amber-900">
+                {diItemsBajaConfianza} ítem(s) del DI requieren revisión
+              </p>
+              <p className="text-sm text-amber-700">
+                La IA asignó estos ítems con baja confianza. Los costos ya están aplicados — revisá que la
+                asignación sea correcta.
+              </p>
+            </div>
+          </div>
+          <Button asChild variant="outline" className="border-amber-400 text-amber-800 shrink-0">
+            <Link href={`/contenedores/${params.id}/di-asignacion`}>Revisar asignación →</Link>
+          </Button>
+        </div>
+      )}
 
       <Tabs defaultValue="resumen">
         <TabsList>
@@ -278,7 +280,11 @@ export default async function ContenedorDetallePage({ params }: { params: { id: 
         </TabsContent>
 
         <TabsContent value="documentos">
-          <DocumentosContenedor contenedorId={params.id} documentos={documentosTyped} ncmPorCarpeta={ncmPorCarpeta} />
+          <DocumentosContenedor
+            contenedorId={params.id}
+            documentos={documentosTyped}
+            diItems={(diItems ?? []).map((it) => ({ confirmado: it.confirmado, confianza: it.confianza }))}
+          />
         </TabsContent>
       </Tabs>
     </div>

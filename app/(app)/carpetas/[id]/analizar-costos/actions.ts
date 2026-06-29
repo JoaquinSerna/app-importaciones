@@ -100,6 +100,13 @@ export async function analizarCostosReales(carpetaId: string): Promise<Resultado
       const fobProporcion = fobTotalCont > 0 ? carpeta.fob_total_usd / fobTotalCont : cbmProporcion;
       const esSeguro = (concepto: string) => /seguro/i.test(concepto);
 
+      // Moneda siempre se detecta sola del documento — nunca se le pregunta al
+      // usuario. USD se usa tal cual; ARS se convierte con el tipo de cambio
+      // de la carpeta (snapshot tomado en la simulación), que es la mejor
+      // referencia disponible cuando la factura no trae su propia cotización.
+      const factorUsdPorMoneda = (moneda: string | undefined) =>
+        (moneda ?? "USD").toUpperCase() === "ARS" ? 1 / (carpeta.tc_snapshot || 1) : 1;
+
       const sufijoContenedor = asignaciones.length > 1 ? ` [contenedor #${numeroCont}]` : "";
 
       // Factura logística → prorateada por CBM (el seguro, por FOB)
@@ -109,7 +116,7 @@ export async function analizarCostosReales(carpetaId: string): Promise<Resultado
         if (conceptos?.length) {
           for (const c of conceptos) {
             const proporcion = esSeguro(c.descripcion) ? fobProporcion : cbmProporcion;
-            const monto = Number(c.monto ?? 0) * proporcion;
+            const monto = Number(c.monto ?? 0) * factorUsdPorMoneda(c.moneda) * proporcion;
             if (monto > 0) {
               costosReales.push({
                 concepto: c.descripcion,
@@ -120,7 +127,8 @@ export async function analizarCostosReales(carpetaId: string): Promise<Resultado
             }
           }
         } else {
-          const total = Number(factLog.datos_extraidos.monto_total ?? 0) * cbmProporcion;
+          const datosFactLog = factLog.datos_extraidos as { monto_total?: number; moneda?: string };
+          const total = Number(datosFactLog.monto_total ?? 0) * factorUsdPorMoneda(datosFactLog.moneda) * cbmProporcion;
           if (total > 0) costosReales.push({ concepto: "Gastos logísticos", monto_usd: total, fuente: `Factura logística${sufijoContenedor}`, es_credito_fiscal: false });
         }
       } else {
@@ -137,7 +145,7 @@ export async function analizarCostosReales(carpetaId: string): Promise<Resultado
         if (conceptos?.length) {
           for (const c of conceptos) {
             const proporcion = esFobBased(c.descripcion) ? fobProporcion : cbmProporcion;
-            const monto = Number(c.monto ?? 0) * proporcion;
+            const monto = Number(c.monto ?? 0) * factorUsdPorMoneda(c.moneda) * proporcion;
             if (monto > 0) {
               costosReales.push({
                 concepto: c.descripcion,
@@ -148,36 +156,21 @@ export async function analizarCostosReales(carpetaId: string): Promise<Resultado
             }
           }
         } else {
-          const total = Number(factDesp.datos_extraidos.monto_total ?? 0) * cbmProporcion;
+          const datosFactDesp = factDesp.datos_extraidos as { monto_total?: number; moneda?: string };
+          const total = Number(datosFactDesp.monto_total ?? 0) * factorUsdPorMoneda(datosFactDesp.moneda) * cbmProporcion;
           if (total > 0) costosReales.push({ concepto: "Honorarios y gastos despachante", monto_usd: total, fuente: `Factura despachante${sufijoContenedor}`, es_credito_fiscal: false });
         }
       } else {
         advertencias.push(`No se encontró Factura del despachante extraída en el contenedor #${numeroCont}.`);
       }
 
-      // Despacho de aduana → tributos reales en USD, prorateados por FOB
-      // (derechos/tasa/IVA/etc. son % del valor de la mercadería, no del volumen).
+      // Despacho de aduana: los tributos reales (derechos, tasa estadística,
+      // IVA, antidumping) ya los aplica confirmarAsignacionDI directamente a
+      // `costos`, prorateados por FOB entre los SKUs exactos de cada ítem del
+      // DI — más preciso que repartirlos de forma uniforme por toda la
+      // carpeta acá. Esta sección solo deja la advertencia si falta subirlo.
       const despacho = docsContenedor.find(d => d.tipo === "despacho_aduana");
-      if (despacho?.datos_extraidos?.monedas_confirmadas) {
-        const itemsConfirmados = despacho.datos_extraidos.items_costos_confirmados as
-          | { concepto: string; monto_usd: number }[]
-          | undefined;
-        if (itemsConfirmados) {
-          const esValorMercaderia = (c: string) => /fob|flete|seguro|cif/i.test(c);
-          const esAntiDumping = (c: string) => /anti[\s-]*dumping/i.test(c);
-          for (const item of itemsConfirmados) {
-            // Anti-dumping no entra acá: se prorratea por FOB solo entre los
-            // SKUs marcados como "paga dumping" (ver pestaña SKUs), no por la
-            // proporción genérica de toda la carpeta. Eso ya queda resuelto
-            // en la tabla "costos" directamente al confirmar el despacho.
-            if (esValorMercaderia(item.concepto) || esAntiDumping(item.concepto)) continue;
-            const monto = item.monto_usd * fobProporcion;
-            if (monto > 0) costosReales.push({ concepto: item.concepto, monto_usd: monto, fuente: `Despacho de aduana${sufijoContenedor}`, es_credito_fiscal: false });
-          }
-        }
-      } else if (despacho) {
-        advertencias.push(`El despacho de aduana del contenedor #${numeroCont} está cargado pero falta confirmar la moneda de cada costo (en la pestaña Documentos del contenedor).`);
-      } else {
+      if (!despacho) {
         advertencias.push(`No se encontró Despacho de aduana extraído en el contenedor #${numeroCont}.`);
       }
 
@@ -317,10 +310,10 @@ export async function guardarComparacion(carpetaId: string, items: ItemPropuesto
   revalidatePath(`/carpetas/${carpetaId}`);
 }
 
-// Corre el análisis sin intervención del usuario: los matches con alta
-// confianza se confirman y se sincronizan a Costos solos; los dudosos quedan
-// guardados como pendientes para que la Sección 3 los muestre listos para
-// revisar (en vez de arrancar vacía y obligar a apretar "Analizar").
+// Corre el análisis sin intervención del usuario y aplica TODOS los montos a
+// Costos de una — incluso los de baja confianza, que solo quedan marcados
+// como "a revisar" para que la Sección 3 los señale, sin bloquear a que
+// nadie los confirme a mano (cero botones después de subir el documento).
 export async function autoAnalizarCarpeta(carpetaId: string): Promise<void> {
   try {
     const resultado = await analizarCostosReales(carpetaId);
@@ -346,9 +339,11 @@ export async function autoAnalizarCarpeta(carpetaId: string): Promise<void> {
       }
     }
 
-    const confirmados = resultado.items.filter((i) => i.confidence >= 0.85);
-    if (confirmados.length > 0) {
-      await sincronizarComparacionACostos(carpetaId, confirmados);
+    // Se aplican los costos igual aunque la confianza sea baja — el campo
+    // `confirmado` (>= 0.85) queda solo para que la UI marque qué revisar,
+    // no como gate para que el monto llegue a la pestaña Costos.
+    if (resultado.items.length > 0) {
+      await sincronizarComparacionACostos(carpetaId, resultado.items);
     }
 
     revalidatePath(`/carpetas/${carpetaId}`);

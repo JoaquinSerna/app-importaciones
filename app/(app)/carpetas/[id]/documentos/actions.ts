@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 
 import { autoAnalizarCarpeta } from "@/app/(app)/carpetas/[id]/analizar-costos/actions";
+import { recalcularCostosDesdeSkus } from "@/app/(app)/carpetas/[id]/skus-actions";
 import { extraerLiquidacionDesdePdf } from "@/lib/pdf-extractor";
 import { extraerDatosDocumento } from "@/lib/pdf-extractor-documentos";
 import { createClient } from "@/lib/supabase/server";
@@ -205,23 +206,38 @@ async function sincronizarDescripcionesDeUnDocumento(
   return { actualizados, itemsEncontrados: items.length };
 }
 
+// Corre automáticamente al subir una Proforma/Packing List: sincroniza
+// descripción/cantidad/CBM/peso de los SKUs existentes 1 a 1, y si la
+// cantidad de ítems del documento no coincide con la de SKUs (algunos se
+// unificaron por NCM al crear la carpeta) cae al matching por monto FOB de
+// agruparDescripcionesConIA, que crea un SKU nuevo por cada ítem sin pareja.
+// Ya no requiere que el usuario lo dispare a mano desde la pestaña SKUs.
 async function sincronizarDescripcionesSkusDesdeDocumento(carpetaId: string, tipo: TipoDocumento) {
   if (tipo !== "proforma_invoice" && tipo !== "packing_list") return;
   const supabase = createClient();
 
   const { data: skus } = await supabase
     .from("skus")
-    .select("id, descripcion, descripcion_es, cantidad, created_at, ncm_aranceles(codigo_ncm)")
+    .select("id, descripcion, descripcion_es, cantidad, precio_unitario_fob_usd, created_at, ncm_aranceles(codigo_ncm)")
     .eq("carpeta_id", carpetaId)
     .order("created_at", { ascending: true });
   if (!skus || skus.length === 0) return;
 
-  await sincronizarDescripcionesDeUnDocumento(
-    supabase,
-    carpetaId,
-    tipo,
-    skus as unknown as { id: string; descripcion: string | null; descripcion_es: string | null; cantidad: number | null; ncm_aranceles: { codigo_ncm: string } | null }[]
-  );
+  const skusTyped = skus as unknown as SkuParaNombrar[];
+
+  const resultado = await sincronizarDescripcionesDeUnDocumento(supabase, carpetaId, tipo, skusTyped);
+  if (resultado.actualizados === 0 && resultado.itemsEncontrados > 0 && resultado.itemsEncontrados !== skus.length) {
+    try {
+      await agruparDescripcionesConIA(supabase, carpetaId, tipo, skusTyped);
+    } catch (err) {
+      console.error("sincronizarDescripcionesSkusDesdeDocumento: agruparDescripcionesConIA", err);
+    }
+  }
+
+  const resultadoRecalculo = await recalcularCostosDesdeSkus(carpetaId);
+  if (resultadoRecalculo.error) {
+    console.error("sincronizarDescripcionesSkusDesdeDocumento: recalcularCostosDesdeSkus", resultadoRecalculo.error);
+  }
 }
 
 interface SkuParaNombrar {

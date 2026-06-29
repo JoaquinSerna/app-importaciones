@@ -177,9 +177,23 @@ export async function subirDocumentoContenedor(
       .update({ estado: "extraido", datos_extraidos: datos })
       .eq("id", doc.id);
 
+    // Los despachos de aduana argentinos siempre están en USD — no hace
+    // falta que el usuario confirme moneda. Va directo de la extracción a
+    // di_items y a la asignación/confirmación por IA, sin pasos manuales.
+    if (tipo === "despacho_aduana" && datos) {
+      try {
+        const itemsDespachoRaw = (datos.items ?? []) as ItemDespachoConMonedaUsd[];
+        await construirYGuardarDiItems(contenedorId, doc.id, itemsDespachoRaw, new Map());
+        await asignarYConfirmarDI(contenedorId);
+      } catch (err) {
+        console.error("subirDocumentoContenedor: pipeline automático del DI", err);
+      }
+    }
+
     await autoAnalizarCarpetasDelContenedor(contenedorId);
 
     revalidatePath(`/contenedores/${contenedorId}`);
+    revalidatePath(`/contenedores/${contenedorId}/di-asignacion`);
     return { ...doc, estado: "extraido", datos_extraidos: datos } as Documento;
   } catch {
     await supabase.from("documentos").update({ estado: "error" }).eq("id", doc.id);

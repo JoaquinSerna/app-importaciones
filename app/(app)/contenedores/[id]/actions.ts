@@ -64,6 +64,13 @@ export async function asignarItemsDI(contenedorId: string): Promise<{ error?: st
     return { error: "Este contenedor no tiene carpetas asignadas." };
   }
 
+  const { data: aprendizajeRaw } = await supabase
+    .from("di_aprendizaje")
+    .select("descripcion_di, sku_descripcion, carpeta_titulo")
+    .order("created_at", { ascending: false })
+    .limit(20);
+  const correccionesPrevias = (aprendizajeRaw ?? []).filter((a) => a.descripcion_di && a.sku_descripcion);
+
   const client = new Anthropic();
   const response = await client.messages.create({
     model: "claude-opus-4-8",
@@ -79,7 +86,7 @@ ${diItems.map((it) => `- Ítem ${it.numero_item}: "${it.descripcion_di ?? "(sin 
 
 CARPETAS Y SKUs DEL CONTENEDOR:
 ${carpetas.map((c) => `- Carpeta "${c.titulo ?? c.numero_carpeta}" (id: ${c.id}):\n${c.skus.map((s) => `  - SKU (id: ${s.id}): "${s.descripcion_es ?? s.descripcion ?? "(sin descripción)"}" — FOB USD ${((s.cantidad ?? 0) * (s.precio_unitario_fob_usd ?? 0)).toFixed(2)}`).join("\n")}`).join("\n")}
-
+${correccionesPrevias.length > 0 ? `\nCORRECCIONES PREVIAS DEL COMPRADOR (usá esto para mejorar tus asignaciones — si una descripción de ítem es similar a una de estas, preferí el mismo criterio):\n${correccionesPrevias.map((a) => `- "${a.descripcion_di}" → SKU "${a.sku_descripcion}" (Carpeta ${a.carpeta_titulo ?? "?"})`).join("\n")}\n` : ""}
 Reglas:
 - Cada ítem del DI pertenece a UNA sola carpeta.
 - Un ítem puede corresponder a UNO o VARIOS SKUs de esa carpeta (mismo producto o mismo NCM).
@@ -202,9 +209,36 @@ export async function confirmarAsignacionDI(
 
   const { data: skusRaw } = await supabase
     .from("skus")
-    .select("id, carpeta_id, cantidad, precio_unitario_fob_usd")
+    .select("id, carpeta_id, cantidad, precio_unitario_fob_usd, descripcion, descripcion_es")
     .in("carpeta_id", carpetaIds);
   const skusPorId = new Map((skusRaw ?? []).map((s) => [s.id, s]));
+
+  const { data: carpetasRaw } = await supabase
+    .from("carpetas")
+    .select("id, titulo, numero_carpeta")
+    .in("id", carpetaIds);
+  const carpetaPorId = new Map((carpetasRaw ?? []).map((c) => [c.id, c]));
+
+  // Asignación previa (la última propuesta por la IA o confirmada), para
+  // detectar si el comprador corrigió algo y guardarlo en di_aprendizaje.
+  const diItemIds = diItems.map((it) => it.id);
+  const { data: diItemSkusPrevios } = diItemIds.length > 0
+    ? await supabase.from("di_item_skus").select("di_item_id, sku_id").in("di_item_id", diItemIds)
+    : { data: [] };
+  const skuIdsPreviosPorItem = new Map<string, Set<string>>();
+  for (const fila of diItemSkusPrevios ?? []) {
+    const set = skuIdsPreviosPorItem.get(fila.di_item_id) ?? new Set<string>();
+    set.add(fila.sku_id);
+    skuIdsPreviosPorItem.set(fila.di_item_id, set);
+  }
+
+  const correcciones: {
+    descripcion_di: string | null;
+    ncm: string | null;
+    carpeta_titulo: string | null;
+    sku_descripcion: string | null;
+    confianza_original: number | null;
+  }[] = [];
 
   // documento_id de referencia para costos_sku (todos los di_items de este
   // contenedor vienen del mismo despacho confirmado más recientemente).
@@ -223,6 +257,24 @@ export async function confirmarAsignacionDI(
 
     const fobPorSku = new Map(skusDelItem.map((s) => [s.id, (s.cantidad ?? 0) * (s.precio_unitario_fob_usd ?? 0)]));
     const fobTotalItem = Array.from(fobPorSku.values()).reduce((a, v) => a + v, 0);
+
+    // ¿El comprador cambió algo respecto de la última propuesta (de la IA o
+    // de una confirmación anterior)? Si sí, lo guardamos como aprendizaje.
+    const skuIdsPrevios = skuIdsPreviosPorItem.get(diItem.id) ?? new Set<string>();
+    const skuIdsNuevos = new Set(asignacion.skuIds);
+    const cambioCarpeta = diItem.carpeta_id !== null && diItem.carpeta_id !== asignacion.carpetaId;
+    const cambioSkus =
+      skuIdsPrevios.size > 0 &&
+      (skuIdsPrevios.size !== skuIdsNuevos.size || Array.from(skuIdsPrevios).some((id) => !skuIdsNuevos.has(id)));
+    if (cambioCarpeta || cambioSkus) {
+      correcciones.push({
+        descripcion_di: diItem.descripcion_di,
+        ncm: diItem.ncm,
+        carpeta_titulo: carpetaPorId.get(asignacion.carpetaId)?.titulo ?? carpetaPorId.get(asignacion.carpetaId)?.numero_carpeta ?? null,
+        sku_descripcion: skusDelItem.map((s) => s.descripcion_es ?? s.descripcion).filter(Boolean).join(" + ") || null,
+        confianza_original: diItem.confianza,
+      });
+    }
 
     await supabase.from("di_item_skus").delete().eq("di_item_id", diItem.id);
     const filasDiItemSkus = skusDelItem.map((s) => {
@@ -335,6 +387,13 @@ export async function confirmarAsignacionDI(
       }
     }
     revalidatePath(`/carpetas/${carpetaId}`);
+  }
+
+  if (correcciones.length > 0) {
+    const { error: errorAprendizaje } = await supabase.from("di_aprendizaje").insert(correcciones);
+    if (errorAprendizaje) {
+      console.error("confirmarAsignacionDI: insert di_aprendizaje", errorAprendizaje);
+    }
   }
 
   revalidatePath(`/contenedores/${contenedorId}`);
