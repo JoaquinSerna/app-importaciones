@@ -178,6 +178,52 @@ export async function subirDocumentoContenedor(
   }
 }
 
+// Repuebla di_items para despachos cuyas monedas ya estaban confirmadas
+// ANTES de que existiera la tabla di_items (la primera confirmación no
+// llegó a poblarla). Reusa los mismos datos ya guardados en datos_extraidos
+// — items (en moneda original) y items_costos_confirmados (para derivar el
+// factor de conversión a USD por concepto) — en vez de pedirle al usuario
+// que vuelva a confirmar las monedas.
+export async function poblarDiItemsDesdeDespacho(
+  contenedorId: string,
+  documentoId: string
+): Promise<{ error?: string; insertados?: number }> {
+  const supabase = createClient();
+
+  const { data: doc } = await supabase
+    .from("documentos")
+    .select("datos_extraidos")
+    .eq("id", documentoId)
+    .single();
+  const datos = (doc?.datos_extraidos ?? {}) as Record<string, unknown>;
+
+  const itemsDespachoRaw = (datos.items ?? []) as ItemDespachoConMonedaUsd[];
+  if (itemsDespachoRaw.length === 0) {
+    return { error: "El documento no tiene ítems individuales extraídos. Volvé a subir o extraer el Despacho de Importación." };
+  }
+
+  const itemsCostosConfirmados = (datos.items_costos_confirmados ?? []) as ItemCostoConfirmado[];
+  if (itemsCostosConfirmados.length === 0) {
+    return { error: "Este despacho todavía no tiene las monedas confirmadas. Confirmalas primero." };
+  }
+
+  const factorUsdPorConcepto = new Map<string, number>();
+  for (const it of itemsCostosConfirmados) {
+    factorUsdPorConcepto.set(it.concepto, it.monto !== 0 ? it.monto_usd / it.monto : it.monto_usd);
+  }
+
+  await construirYGuardarDiItems(contenedorId, documentoId, itemsDespachoRaw, factorUsdPorConcepto);
+
+  const { count } = await supabase
+    .from("di_items")
+    .select("id", { count: "exact", head: true })
+    .eq("documento_id", documentoId);
+
+  revalidatePath(`/contenedores/${contenedorId}`);
+  revalidatePath(`/contenedores/${contenedorId}/di-asignacion`);
+  return { insertados: count ?? itemsDespachoRaw.length };
+}
+
 export async function eliminarDocumentoContenedor(contenedorId: string, documentoId: string) {
   const supabase = createClient();
   await supabase.from("documentos").delete().eq("id", documentoId);

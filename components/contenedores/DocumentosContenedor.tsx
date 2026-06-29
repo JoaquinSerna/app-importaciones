@@ -5,6 +5,7 @@ import { CheckCircle, Download, FileText, Loader2, Upload, XCircle } from "lucid
 
 import {
   eliminarDocumentoContenedor,
+  poblarDiItemsDesdeDespacho,
   subirDocumentoContenedor,
 } from "@/app/(app)/contenedores/[id]/documentos/actions";
 import { obtenerUrlDescarga } from "@/app/actions/storage";
@@ -266,6 +267,8 @@ interface DocumentosContenedorProps {
 }
 
 export function DocumentosContenedor({ contenedorId, documentos, ncmPorCarpeta }: DocumentosContenedorProps) {
+  const { toast } = useToast();
+  const [isPendingDi, startTransitionDi] = useTransition();
   const byTipo = Object.fromEntries(documentos.map((d) => [d.tipo, d])) as Partial<
     Record<TipoDocumento, Documento>
   >;
@@ -285,6 +288,18 @@ export function DocumentosContenedor({ contenedorId, documentos, ncmPorCarpeta }
     | undefined;
   const tipoCambioInicial = (datosDespacho?.tipo_cambio as number | null) ?? null;
   const totalConfirmado = (itemsCostosConfirmados ?? []).reduce((a, i) => a + i.monto_usd, 0);
+
+  function handlePoblarDiItems() {
+    if (!despacho) return;
+    startTransitionDi(async () => {
+      const resultado = await poblarDiItemsDesdeDespacho(contenedorId, despacho.id);
+      if (resultado.error) {
+        toast({ title: "No se pudieron cargar los ítems del DI", description: resultado.error, variant: "destructive" });
+        return;
+      }
+      toast({ title: `${resultado.insertados ?? 0} ítem(s) del DI cargados`, description: "Ya podés asignarlos a carpetas y SKUs." });
+    });
+  }
 
   return (
     <div className="space-y-6">
@@ -349,6 +364,20 @@ export function DocumentosContenedor({ contenedorId, documentos, ncmPorCarpeta }
               <span className="text-base font-bold">
                 USD {totalConfirmado.toLocaleString("es-AR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
               </span>
+            </div>
+            <div className="border-t pt-3">
+              <Button size="sm" variant="outline" onClick={handlePoblarDiItems} disabled={isPendingDi}>
+                {isPendingDi ? (
+                  <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />
+                ) : (
+                  <FileText className="h-3.5 w-3.5 mr-1" />
+                )}
+                Cargar ítems del DI ({itemsDespachoRaw.length || "?"} ítems)
+              </Button>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Usalo si confirmaste las monedas de este despacho antes de que existiera la asignación por ítem —
+                vuelve a generar los ítems del DI sin pedirte que confirmes de nuevo.
+              </p>
             </div>
           </CardContent>
         </Card>
