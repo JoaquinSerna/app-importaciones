@@ -194,7 +194,7 @@ export async function asignarYConfirmarDI(contenedorId: string): Promise<{ error
 export async function confirmarAsignacionDI(
   contenedorId: string,
   asignaciones: AsignacionItemInput[]
-): Promise<{ error?: string; diagnostico?: unknown }> {
+): Promise<{ error?: string }> {
   const supabase = createClient();
 
   const { data: diItems } = await supabase.from("di_items").select("*").eq("contenedor_id", contenedorId);
@@ -240,6 +240,17 @@ export async function confirmarAsignacionDI(
     confianza_original: number | null;
   }[] = [];
 
+  // Cada escritura a Supabase puede fallar (RLS, constraint, etc.) sin
+  // tirar excepción — si no se chequea el error, la función "termina bien"
+  // sin haber guardado nada. Se acumulan acá para devolverlos de una.
+  const errores: string[] = [];
+  function reportarError(contexto: string, error: { message: string } | null) {
+    if (error) {
+      console.error(`confirmarAsignacionDI: ${contexto}`, error);
+      errores.push(`${contexto}: ${error.message}`);
+    }
+  }
+
   // documento_id de referencia para costos_sku (todos los di_items de este
   // contenedor vienen del mismo despacho confirmado más recientemente).
   const documentoId = diItems.find((it) => it.documento_id)?.documento_id ?? null;
@@ -276,18 +287,22 @@ export async function confirmarAsignacionDI(
       });
     }
 
-    await supabase.from("di_item_skus").delete().eq("di_item_id", diItem.id);
+    const { error: errorDeleteDis } = await supabase.from("di_item_skus").delete().eq("di_item_id", diItem.id);
+    reportarError(`delete di_item_skus (ítem ${diItem.numero_item})`, errorDeleteDis);
+
     const filasDiItemSkus = skusDelItem.map((s) => {
       const fobSku = fobPorSku.get(s.id) ?? 0;
       const proporcionFob = fobTotalItem > 0 ? fobSku / fobTotalItem : 1 / skusDelItem.length;
       return { di_item_id: diItem.id, carpeta_id: asignacion.carpetaId, sku_id: s.id, proporcion_fob: proporcionFob };
     });
-    await supabase.from("di_item_skus").insert(filasDiItemSkus);
+    const { error: errorInsertDis } = await supabase.from("di_item_skus").insert(filasDiItemSkus);
+    reportarError(`insert di_item_skus (ítem ${diItem.numero_item})`, errorInsertDis);
 
-    await supabase
+    const { error: errorUpdateDi } = await supabase
       .from("di_items")
       .update({ carpeta_id: asignacion.carpetaId, confirmado: true })
       .eq("id", diItem.id);
+    reportarError(`update di_items (ítem ${diItem.numero_item})`, errorUpdateDi);
 
     for (const fila of filasDiItemSkus) {
       const acumular = (concepto: string, montoItem: number) => {
@@ -314,20 +329,24 @@ export async function confirmarAsignacionDI(
 
   // Reset paga_dumping en todas las carpetas del contenedor antes de marcar
   // de nuevo a partir de esta asignación.
-  await supabase.from("skus").update({ paga_dumping: false }).in("carpeta_id", carpetaIds);
+  const { error: errorResetDumping } = await supabase.from("skus").update({ paga_dumping: false }).in("carpeta_id", carpetaIds);
+  reportarError("reset paga_dumping", errorResetDumping);
   const skuIdsConDumping = Array.from(antidumpingPorSku.entries()).filter(([, m]) => m > 0).map(([id]) => id);
   if (skuIdsConDumping.length > 0) {
-    await supabase.from("skus").update({ paga_dumping: true }).in("id", skuIdsConDumping);
+    const { error: errorSetDumping } = await supabase.from("skus").update({ paga_dumping: true }).in("id", skuIdsConDumping);
+    reportarError("set paga_dumping", errorSetDumping);
   }
 
   // costos_sku: detalle real por SKU que usa la tab SKUs de cada carpeta.
-  await supabase.from("costos_sku").delete().in("sku_id", Array.from(skusPorId.keys()));
+  const { error: errorDeleteCostosSku } = await supabase.from("costos_sku").delete().in("sku_id", Array.from(skusPorId.keys()));
+  reportarError("delete costos_sku", errorDeleteCostosSku);
   if (documentoId && montosPorSkuConcepto.size > 0) {
     const filas = Array.from(montosPorSkuConcepto.entries()).map(([key, monto]) => {
       const [skuId, concepto] = key.split("__");
       return { sku_id: skuId, documento_id: documentoId, concepto, monto_real_usd: monto };
     });
-    await supabase.from("costos_sku").insert(filas);
+    const { error: errorInsertCostosSku } = await supabase.from("costos_sku").insert(filas);
+    reportarError("insert costos_sku", errorInsertCostosSku);
   }
 
   // costos a nivel carpeta: suma de cada concepto entre los SKUs de esa carpeta.
@@ -345,21 +364,25 @@ export async function confirmarAsignacionDI(
   for (const carpetaId of Array.from(new Set(carpetaIds))) {
     // Limpio costos "nuevos" (sin equivalente en el simulador) insertados por
     // una confirmación anterior, antes de re-escribir desde cero.
-    await supabase.from("costos").delete().eq("carpeta_id", carpetaId).eq("notas", NOTA_DI);
+    const { error: errorDeleteNota } = await supabase.from("costos").delete().eq("carpeta_id", carpetaId).eq("notas", NOTA_DI);
+    reportarError(`delete costos NOTA_DI (carpeta ${carpetaId})`, errorDeleteNota);
 
     // Limpio también filas de antidumping que hayan quedado de versiones
     // anteriores de este flujo (con otra nota u origen), para que no queden
     // duplicadas ni interfieran con el cálculo de esta confirmación.
-    await supabase.from("costos").delete().eq("carpeta_id", carpetaId).ilike("concepto", "%anti%dumping%");
+    const { error: errorDeleteAntidumping } = await supabase.from("costos").delete().eq("carpeta_id", carpetaId).ilike("concepto", "%anti%dumping%");
+    reportarError(`delete costos antidumping legacy (carpeta ${carpetaId})`, errorDeleteAntidumping);
 
-    const { data: costosExistentes } = await supabase.from("costos").select("id, concepto, origen").eq("carpeta_id", carpetaId);
+    const { data: costosExistentes, error: errorSelectCostos } = await supabase.from("costos").select("id, concepto, origen").eq("carpeta_id", carpetaId);
+    reportarError(`select costos (carpeta ${carpetaId})`, errorSelectCostos);
 
     // Pongo en 0 los tributos conocidos antes de reaplicar — si esta
     // reconfirmación dejó algún concepto sin ítems asignados, no debe quedar
     // el monto de la confirmación anterior.
     const tributosConocidos = (costosExistentes ?? []).filter((c) => familiaTributo(c.concepto));
     for (const c of tributosConocidos) {
-      await supabase.from("costos").update({ monto_real_usd: 0 }).eq("id", c.id);
+      const { error: errorResetCosto } = await supabase.from("costos").update({ monto_real_usd: 0 }).eq("id", c.id);
+      reportarError(`reset monto_real_usd costo ${c.id}`, errorResetCosto);
     }
 
     const entradasCarpeta = Array.from(totalPorCarpetaConcepto.entries()).filter(([k]) => k.startsWith(`${carpetaId}__`));
@@ -367,14 +390,12 @@ export async function confirmarAsignacionDI(
       const concepto = k.split("__")[1];
       const familia = familiaTributo(concepto);
       const costoExistente = (costosExistentes ?? []).find((c) => familia && familiaTributo(c.concepto) === familia);
-      console.log(
-        `[confirmarAsignacionDI] concepto="${concepto}" familia="${familia}" costoExistente=${costoExistente?.id ?? "null"} monto=${monto}`
-      );
 
       if (costoExistente) {
-        await supabase.from("costos").update({ monto_real_usd: monto }).eq("id", costoExistente.id);
+        const { error: errorUpdateCosto } = await supabase.from("costos").update({ monto_real_usd: monto }).eq("id", costoExistente.id);
+        reportarError(`update costo ${concepto} (carpeta ${carpetaId})`, errorUpdateCosto);
       } else {
-        await supabase.from("costos").insert({
+        const { error: errorInsertCosto } = await supabase.from("costos").insert({
           carpeta_id: carpetaId,
           nivel: "carpeta" as const,
           concepto,
@@ -384,6 +405,7 @@ export async function confirmarAsignacionDI(
           monto_real_usd: monto,
           notas: NOTA_DI,
         });
+        reportarError(`insert costo ${concepto} (carpeta ${carpetaId})`, errorInsertCosto);
       }
     }
     revalidatePath(`/carpetas/${carpetaId}`);
@@ -399,14 +421,8 @@ export async function confirmarAsignacionDI(
   revalidatePath(`/contenedores/${contenedorId}`);
   revalidatePath(`/contenedores/${contenedorId}/di-asignacion`);
 
-  // Diagnóstico temporal — sacar después de confirmar el bug
-  const diagnostico = {
-    antidumpingPorSkuEntries: Array.from(antidumpingPorSku.entries()),
-    montosPorSkuConceptoConDumping: Array.from(montosPorSkuConcepto.entries())
-      .filter(([k]) => k.includes("anti")),
-    totalPorCarpetaConceptoConDumping: Array.from(totalPorCarpetaConcepto.entries())
-      .filter(([k]) => k.includes("anti")),
-  };
-  console.log("[DIAG antidumping]", JSON.stringify(diagnostico, null, 2));
-  return { diagnostico };
+  if (errores.length > 0) {
+    return { error: errores.join(" | ") };
+  }
+  return {};
 }
