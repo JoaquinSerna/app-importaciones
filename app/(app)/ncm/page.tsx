@@ -1,5 +1,3 @@
-import { NcmDialog } from "@/components/ncm/NcmDialog";
-import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Table,
@@ -24,16 +22,12 @@ export default async function NcmPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold">Posiciones arancelarias (NCM)</h1>
-          <p className="text-muted-foreground">
-            Administrá los aranceles por posición NCM. Estos datos se usan en el simulador de costos.
-          </p>
-        </div>
-        <NcmDialog
-          trigger={<Button>Nuevo NCM</Button>}
-        />
+      <div>
+        <h1 className="text-2xl font-semibold">Posiciones arancelarias (NCM)</h1>
+        <p className="text-muted-foreground">
+          Catálogo de solo lectura: se cargan automáticamente al clasificar los productos en &ldquo;Nueva
+          carpeta&rdquo; (o al confirmarlos a mano ahí mismo), nunca desde acá.
+        </p>
       </div>
 
       <Card>
@@ -51,7 +45,6 @@ export default async function NcmPage() {
                 <TableHead className="text-right">IVA adic. %</TableHead>
                 <TableHead className="text-right">Ganancias %</TableHead>
                 <TableHead className="text-right">IIBB %</TableHead>
-                <TableHead></TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -70,22 +63,12 @@ export default async function NcmPage() {
                   <TableCell className="text-right">
                     {ncm.aplica_iibb ? `${ncm.iibb_pct}%` : "—"}
                   </TableCell>
-                  <TableCell>
-                    <NcmDialog
-                      ncm={ncm}
-                      trigger={
-                        <Button variant="ghost" size="sm">
-                          Editar
-                        </Button>
-                      }
-                    />
-                  </TableCell>
                 </TableRow>
               ))}
               {ncms.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={8} className="text-center text-muted-foreground">
-                    No hay posiciones arancelarias registradas. Agregá la primera.
+                  <TableCell colSpan={7} className="text-center text-muted-foreground">
+                    Todavía no se clasificó ningún NCM. Se van a ir agregando desde &ldquo;Nueva carpeta&rdquo;.
                   </TableCell>
                 </TableRow>
               )}

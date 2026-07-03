@@ -1,43 +1,60 @@
 "use client";
 
-import { useEffect, useMemo, useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 
-import {
-  confirmarNcmSkus,
-  type ClasificacionSkuResultado,
-  type ConfirmacionNcmInput,
-} from "@/app/(app)/carpetas/[id]/skus-actions";
+import { buscarDiePorNcm } from "@/app/(app)/carpetas/nueva/actions";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { useToast } from "@/components/ui/use-toast";
+
+export interface OpcionNcmDialog {
+  ncm: string;
+  descripcionOficial: string;
+  diePct: number;
+  diferencia: string;
+}
+
+export interface FilaClasificacionNcm {
+  index: number;
+  descripcionItem: string;
+  ncmPropuesto: string | null;
+  descripcionOficial: string | null;
+  diePct: number | null;
+  confianza: "alta" | "media" | "baja";
+  estado: "definido" | "ambiguo" | "no_encontrado";
+  opcionesAlternativas: OpcionNcmDialog[];
+  razonamiento: string;
+}
+
+export interface ResultadoAceptacionNcm {
+  index: number;
+  /** null = el ítem quedó sin NCM; se usa el arancel default provisorio al simular/crear la carpeta. */
+  ncmCodigo: string | null;
+  diePct: number;
+  ivaPct: 21 | 10.5;
+  pagaIvaAdicional: boolean;
+  ncmOrigen: "clasificacion_automatica" | "manual" | null;
+}
 
 interface Props {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  carpetaId: string;
-  resultados: ClasificacionSkuResultado[];
-  /** Se llama después de confirmar y guardar los NCMs con éxito. */
-  onConfirmado: () => void;
+  resultados: FilaClasificacionNcm[];
+  /** Se llama al apretar "Aceptar todos", con el NCM final (editado o no) de cada ítem. */
+  onAceptar: (resultados: ResultadoAceptacionNcm[]) => void;
 }
 
 interface FilaEstado {
-  incluida: boolean;
   ncm: string;
   diePct: number;
-  descripcion: string;
+  descripcionOficial: string;
   ivaPct: 21 | 10.5;
   pagaIvaAdicional: boolean;
-}
-
-interface FilaManual {
-  ncm: string;
-  die: string;
-  ivaPct?: 21 | 10.5;
-  pagaIvaAdicional?: boolean;
+  buscando: boolean;
+  errorBusqueda?: string;
 }
 
 const IVA_ADICIONAL_DEFAULT = { 21: 20, 10.5: 10 } as const;
@@ -48,98 +65,83 @@ function confianzaClass(confianza: "alta" | "media" | "baja") {
   return "text-red-700";
 }
 
-export function NcmRevisionDialog({ open, onOpenChange, carpetaId, resultados, onConfirmado }: Props) {
-  const { toast } = useToast();
-  const [isPending, startTransition] = useTransition();
-  const [filas, setFilas] = useState<Record<string, FilaEstado>>({});
-  const [manual, setManual] = useState<Record<string, FilaManual>>({});
+/** El NCM final quedó igual al que propuso la IA → viene de la clasificación automática; si el usuario lo tipeó/cambió → manual; si quedó vacío → null (sin clasificar, usa default). */
+function origenPara(r: FilaClasificacionNcm, ncmFinal: string | null): "clasificacion_automatica" | "manual" | null {
+  if (!ncmFinal) return null;
+  if (r.ncmPropuesto && ncmFinal === r.ncmPropuesto) return "clasificacion_automatica";
+  return "manual";
+}
 
-  // Al abrir: definidos con confianza alta vienen pre-tildados; ambiguos y de
-  // baja confianza quedan destildados para que el usuario los revise antes.
+export function NcmRevisionDialog({ open, onOpenChange, resultados, onAceptar }: Props) {
+  const [filas, setFilas] = useState<Record<number, FilaEstado>>({});
+  const [, startBusqueda] = useTransition();
+
+  // Al abrir: cada fila arranca con lo que propuso la IA (o vacía si quedó
+  // "no encontrado"), IVA 21% y "paga IVA adicional" en Sí por default.
   useEffect(() => {
     if (!open) return;
-    const inicial: Record<string, FilaEstado> = {};
+    const inicial: Record<number, FilaEstado> = {};
     for (const r of resultados) {
-      if (r.estado === "no_encontrado" || !r.ncm_propuesto) continue;
-      inicial[r.sku_id] = {
-        incluida: r.estado === "definido" && r.confianza === "alta",
-        ncm: r.ncm_propuesto,
-        diePct: r.die_pct ?? 0,
-        descripcion: r.descripcion_oficial ?? "",
+      inicial[r.index] = {
+        ncm: r.ncmPropuesto ?? "",
+        diePct: r.diePct ?? 20,
+        descripcionOficial: r.descripcionOficial ?? "",
         ivaPct: 21,
         pagaIvaAdicional: true,
+        buscando: false,
       };
     }
     setFilas(inicial);
-    setManual({});
   }, [open, resultados]);
 
-  function setFila(skuId: string, patch: Partial<FilaEstado>) {
-    setFilas((prev) => ({ ...prev, [skuId]: { ...prev[skuId], ...patch } as FilaEstado }));
+  function setFila(index: number, patch: Partial<FilaEstado>) {
+    setFilas((prev) => ({ ...prev, [index]: { ...prev[index], ...patch } as FilaEstado }));
   }
 
-  function handleSeleccionOpcion(r: ClasificacionSkuResultado, ncmElegido: string) {
-    const opcion =
-      ncmElegido === r.ncm_propuesto
-        ? { ncm: r.ncm_propuesto!, diePct: r.die_pct ?? 0, descripcion: r.descripcion_oficial ?? "" }
-        : (() => {
-            const alt = r.opciones_alternativas.find((o) => o.ncm === ncmElegido);
-            return alt ? { ncm: alt.ncm, diePct: alt.die_pct, descripcion: alt.descripcion_oficial } : null;
-          })();
-    if (!opcion) return;
-    setFila(r.sku_id, { incluida: true, ...opcion });
+  function handleSeleccionOpcion(index: number, opcion: OpcionNcmDialog) {
+    setFila(index, { ncm: opcion.ncm, diePct: opcion.diePct, descripcionOficial: opcion.descripcionOficial, errorBusqueda: undefined });
   }
 
-  function construirConfirmaciones(): ConfirmacionNcmInput[] {
-    const confirmaciones: ConfirmacionNcmInput[] = [];
-    for (const r of resultados) {
-      const fila = filas[r.sku_id];
-      if (fila?.incluida) {
-        confirmaciones.push({
-          sku_id: r.sku_id,
-          ncm_codigo: fila.ncm,
-          die_pct: fila.diePct,
-          descripcion: fila.descripcion,
-          iva_pct: fila.ivaPct,
-          paga_iva_adicional: fila.pagaIvaAdicional,
-        });
-        continue;
-      }
-      const m = manual[r.sku_id];
-      const die = parseFloat(m?.die ?? "");
-      if (m?.ncm.trim() && Number.isFinite(die)) {
-        confirmaciones.push({
-          sku_id: r.sku_id,
-          ncm_codigo: m.ncm.trim(),
-          die_pct: die,
-          descripcion: r.descripcion_sku,
-          iva_pct: m.ivaPct ?? 21,
-          paga_iva_adicional: m.pagaIvaAdicional ?? true,
-        });
-      }
-    }
-    return confirmaciones;
-  }
-
-  const cantidadSeleccionada = useMemo(construirConfirmaciones, [filas, manual, resultados]).length;
-
-  function handleConfirmar() {
-    const confirmaciones = construirConfirmaciones();
-    if (confirmaciones.length === 0) {
-      toast({ title: "No hay NCMs seleccionados", description: "Marcá al menos un SKU para confirmar." });
+  // Se dispara al salir del campo (no en cada tecla) para no saturar de
+  // llamadas al server action mientras el usuario todavía está tipeando.
+  function handleBlurNcm(index: number) {
+    const codigo = filas[index]?.ncm?.trim();
+    if (!codigo) {
+      setFila(index, { errorBusqueda: undefined });
       return;
     }
-
-    startTransition(async () => {
-      const resultado = await confirmarNcmSkus(carpetaId, confirmaciones);
-      if (resultado.error) {
-        toast({ title: "Error guardando NCMs", description: resultado.error, variant: "destructive" });
+    startBusqueda(async () => {
+      setFila(index, { buscando: true, errorBusqueda: undefined });
+      const pos = await buscarDiePorNcm(codigo);
+      if (!pos) {
+        setFila(index, { buscando: false, errorBusqueda: "NCM no encontrado en el nomenclador de AFIP." });
         return;
       }
-      toast({ title: `${confirmaciones.length} NCM(s) asignados`, description: "La simulación de la carpeta se recalculó con los nuevos NCM." });
-      onOpenChange(false);
-      onConfirmado();
+      setFila(index, {
+        buscando: false,
+        ncm: pos.ncm8Dotted,
+        diePct: pos.diePct,
+        descripcionOficial: pos.descripcion,
+        errorBusqueda: undefined,
+      });
     });
+  }
+
+  function handleAceptarTodos() {
+    const salida: ResultadoAceptacionNcm[] = resultados.map((r) => {
+      const fila = filas[r.index];
+      const ncmFinal = fila?.ncm?.trim() || null;
+      return {
+        index: r.index,
+        ncmCodigo: ncmFinal,
+        diePct: fila?.diePct ?? 20,
+        ivaPct: fila?.ivaPct ?? 21,
+        pagaIvaAdicional: fila?.pagaIvaAdicional ?? true,
+        ncmOrigen: origenPara(r, ncmFinal),
+      };
+    });
+    onAceptar(salida);
+    onOpenChange(false);
   }
 
   return (
@@ -150,21 +152,20 @@ export function NcmRevisionDialog({ open, onOpenChange, carpetaId, resultados, o
         </DialogHeader>
 
         <p className="text-xs text-muted-foreground">
-          El Derecho de Importación (DIE) sale del Arancel Integrado de AFIP. Elegí el IVA (21% o 10,5%) y si el
-          producto paga IVA adicional — se calcula automáticamente (20% o 10% según corresponda). IIBB (2,5%) y
-          Anticipo de ganancias (6%) se cargan fijos; podés ajustarlos luego desde el módulo NCM si un caso puntual
-          difiere.
+          El Derecho de Importación (DIE) sale del Arancel Integrado de AFIP — podés editar el NCM de cualquier
+          ítem y el DIE se busca solo. Elegí el IVA (21% o 10,5%) y si el producto paga IVA adicional (se calcula
+          automático: 20% o 10%). IIBB (2,5%) y Anticipo de ganancias (6%) quedan fijos. Si dejás un ítem sin NCM,
+          se simula con Derecho 20% / IVA 21% / IVA adicional 20% hasta que lo clasifiques.
         </p>
 
         {resultados.length === 0 ? (
-          <p className="text-sm text-muted-foreground py-4">Todos los SKUs de esta carpeta ya tienen un NCM asignado.</p>
+          <p className="text-sm text-muted-foreground py-4">No hay ítems para clasificar.</p>
         ) : (
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead className="w-8" />
-                <TableHead>SKU</TableHead>
-                <TableHead>NCM propuesto</TableHead>
+                <TableHead>Ítem</TableHead>
+                <TableHead>NCM</TableHead>
                 <TableHead>Descripción oficial</TableHead>
                 <TableHead className="text-right">DIE</TableHead>
                 <TableHead>IVA</TableHead>
@@ -175,105 +176,73 @@ export function NcmRevisionDialog({ open, onOpenChange, carpetaId, resultados, o
             </TableHeader>
             <TableBody>
               {resultados.map((r) => {
-                const noEncontrado = r.estado === "no_encontrado" || !r.ncm_propuesto;
-                const fila = filas[r.sku_id];
-                const esAmbiguo = r.estado === "ambiguo" && r.opciones_alternativas.length > 0;
+                const fila = filas[r.index];
+                const noEncontrado = r.estado === "no_encontrado" || !r.ncmPropuesto;
+                const esAmbiguo = r.estado === "ambiguo" && r.opcionesAlternativas.length > 0;
                 const bajaConfianza = r.confianza === "baja" && !noEncontrado;
-                const descripcionElegida = esAmbiguo
-                  ? fila?.ncm === r.ncm_propuesto
-                    ? r.descripcion_oficial
-                    : r.opciones_alternativas.find((o) => o.ncm === fila?.ncm)?.descripcion_oficial
-                  : r.descripcion_oficial;
-                const diferenciaElegida = esAmbiguo
-                  ? r.opciones_alternativas.find((o) => o.ncm === fila?.ncm)?.diferencia ??
-                    r.opciones_alternativas[0]?.diferencia
-                  : null;
+                const vacia = !fila?.ncm?.trim();
 
                 return (
-                  <TableRow key={r.sku_id} className={bajaConfianza ? "bg-amber-50" : undefined}>
+                  <TableRow key={r.index} className={bajaConfianza || (noEncontrado && vacia) ? "bg-amber-50" : undefined}>
                     <TableCell>
-                      {!noEncontrado && (
-                        <input
-                          type="checkbox"
-                          checked={fila?.incluida ?? false}
-                          onChange={(e) => setFila(r.sku_id, { incluida: e.target.checked })}
-                          className="h-4 w-4 accent-cac-blue"
-                        />
-                      )}
-                    </TableCell>
-                    <TableCell>
-                      <div className="max-w-[200px] truncate" title={r.descripcion_sku}>
-                        {r.sku_codigo ? `${r.sku_codigo} — ` : ""}
-                        {r.descripcion_sku}
+                      <div className="max-w-[220px] truncate" title={r.descripcionItem}>
+                        {r.descripcionItem}
                       </div>
                     </TableCell>
                     <TableCell>
-                      {noEncontrado ? (
+                      <div className="flex flex-col gap-1">
                         <Input
                           placeholder="ej. 4203.29.00"
-                          value={manual[r.sku_id]?.ncm ?? ""}
-                          onChange={(e) =>
-                            setManual((prev) => ({ ...prev, [r.sku_id]: { ...prev[r.sku_id], ncm: e.target.value, die: prev[r.sku_id]?.die ?? "" } }))
-                          }
-                          className="w-32"
+                          value={fila?.ncm ?? ""}
+                          onChange={(e) => setFila(r.index, { ncm: e.target.value })}
+                          onBlur={() => handleBlurNcm(r.index)}
+                          className="w-32 font-mono"
                         />
-                      ) : esAmbiguo ? (
-                        <Select value={fila?.ncm} onValueChange={(v) => handleSeleccionOpcion(r, v)}>
-                          <SelectTrigger className="w-36">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value={r.ncm_propuesto!}>{r.ncm_propuesto}</SelectItem>
-                            {r.opciones_alternativas.map((o) => (
-                              <SelectItem key={o.ncm} value={o.ncm}>
-                                {o.ncm}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      ) : (
-                        <span className="font-mono">{r.ncm_propuesto}</span>
-                      )}
+                        {fila?.buscando && <span className="text-xs text-muted-foreground">Buscando DIE...</span>}
+                        {fila?.errorBusqueda && <span className="text-xs text-destructive">{fila.errorBusqueda}</span>}
+                        {esAmbiguo && (
+                          <Select value="" onValueChange={(v) => {
+                            const opcion = v === r.ncmPropuesto
+                              ? { ncm: r.ncmPropuesto!, descripcionOficial: r.descripcionOficial ?? "", diePct: r.diePct ?? 20, diferencia: "" }
+                              : r.opcionesAlternativas.find((o) => o.ncm === v);
+                            if (opcion) handleSeleccionOpcion(r.index, opcion);
+                          }}>
+                            <SelectTrigger className="w-32 h-7 text-xs">
+                              <SelectValue placeholder="Alternativas" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {r.ncmPropuesto && (
+                                <SelectItem value={r.ncmPropuesto}>{r.ncmPropuesto} (propuesto)</SelectItem>
+                              )}
+                              {r.opcionesAlternativas.map((o) => (
+                                <SelectItem key={o.ncm} value={o.ncm}>
+                                  {o.ncm}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        )}
+                      </div>
                     </TableCell>
                     <TableCell className="max-w-[240px]">
-                      {noEncontrado ? (
+                      {noEncontrado && vacia ? (
                         <span className="text-xs text-muted-foreground">{r.razonamiento}</span>
                       ) : (
                         <div className="text-xs">
-                          <div>{descripcionElegida}</div>
-                          {esAmbiguo && diferenciaElegida && (
-                            <div className="text-muted-foreground mt-0.5">{diferenciaElegida}</div>
+                          <div>{fila?.descripcionOficial}</div>
+                          {esAmbiguo && (
+                            <div className="text-muted-foreground mt-0.5">
+                              {r.opcionesAlternativas.find((o) => o.ncm === fila?.ncm)?.diferencia}
+                            </div>
                           )}
                         </div>
                       )}
                     </TableCell>
-                    <TableCell className="text-right">
-                      {noEncontrado ? (
-                        <Input
-                          type="number"
-                          step="0.01"
-                          placeholder="%"
-                          value={manual[r.sku_id]?.die ?? ""}
-                          onChange={(e) =>
-                            setManual((prev) => ({ ...prev, [r.sku_id]: { ...prev[r.sku_id], ncm: prev[r.sku_id]?.ncm ?? "", die: e.target.value } }))
-                          }
-                          className="w-20"
-                        />
-                      ) : (
-                        `${fila?.diePct ?? r.die_pct ?? 0}%`
-                      )}
-                    </TableCell>
+                    <TableCell className="text-right">{vacia ? "20% (default)" : `${fila?.diePct ?? 0}%`}</TableCell>
                     <TableCell>
                       <Select
-                        value={String((noEncontrado ? manual[r.sku_id]?.ivaPct : fila?.ivaPct) ?? 21)}
-                        onValueChange={(v) => {
-                          const ivaPct = (v === "21" ? 21 : 10.5) as 21 | 10.5;
-                          if (noEncontrado) {
-                            setManual((prev) => ({ ...prev, [r.sku_id]: { ...prev[r.sku_id], ncm: prev[r.sku_id]?.ncm ?? "", die: prev[r.sku_id]?.die ?? "", ivaPct } }));
-                          } else {
-                            setFila(r.sku_id, { ivaPct });
-                          }
-                        }}
+                        value={String(fila?.ivaPct ?? 21)}
+                        onValueChange={(v) => setFila(r.index, { ivaPct: (v === "21" ? 21 : 10.5) as 21 | 10.5 })}
                       >
                         <SelectTrigger className="w-20">
                           <SelectValue />
@@ -285,41 +254,26 @@ export function NcmRevisionDialog({ open, onOpenChange, carpetaId, resultados, o
                       </Select>
                     </TableCell>
                     <TableCell>
-                      {(() => {
-                        const ivaPct = ((noEncontrado ? manual[r.sku_id]?.ivaPct : fila?.ivaPct) ?? 21) as 21 | 10.5;
-                        const pagaIvaAdicional = (noEncontrado ? manual[r.sku_id]?.pagaIvaAdicional : fila?.pagaIvaAdicional) ?? true;
-                        return (
-                          <div className="flex items-center gap-1.5">
-                            <Select
-                              value={pagaIvaAdicional ? "si" : "no"}
-                              onValueChange={(v) => {
-                                const paga = v === "si";
-                                if (noEncontrado) {
-                                  setManual((prev) => ({ ...prev, [r.sku_id]: { ...prev[r.sku_id], ncm: prev[r.sku_id]?.ncm ?? "", die: prev[r.sku_id]?.die ?? "", pagaIvaAdicional: paga } }));
-                                } else {
-                                  setFila(r.sku_id, { pagaIvaAdicional: paga });
-                                }
-                              }}
-                            >
-                              <SelectTrigger className="w-20">
-                                <SelectValue />
-                              </SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="si">Sí</SelectItem>
-                                <SelectItem value="no">No</SelectItem>
-                              </SelectContent>
-                            </Select>
-                            {pagaIvaAdicional && (
-                              <span className="text-xs text-muted-foreground">{IVA_ADICIONAL_DEFAULT[ivaPct]}%</span>
-                            )}
-                          </div>
-                        );
-                      })()}
+                      <div className="flex items-center gap-1.5">
+                        <Select
+                          value={fila?.pagaIvaAdicional ?? true ? "si" : "no"}
+                          onValueChange={(v) => setFila(r.index, { pagaIvaAdicional: v === "si" })}
+                        >
+                          <SelectTrigger className="w-20">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="si">Sí</SelectItem>
+                            <SelectItem value="no">No</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        {(fila?.pagaIvaAdicional ?? true) && (
+                          <span className="text-xs text-muted-foreground">{IVA_ADICIONAL_DEFAULT[fila?.ivaPct ?? 21]}%</span>
+                        )}
+                      </div>
                     </TableCell>
                     <TableCell>
-                      {!noEncontrado && (
-                        <span className={`text-xs font-medium ${confianzaClass(r.confianza)}`}>{r.confianza}</span>
-                      )}
+                      {!noEncontrado && <span className={`text-xs font-medium ${confianzaClass(r.confianza)}`}>{r.confianza}</span>}
                     </TableCell>
                     <TableCell>
                       <Badge variant={noEncontrado ? "destructive" : esAmbiguo ? "secondary" : "default"}>
@@ -337,8 +291,8 @@ export function NcmRevisionDialog({ open, onOpenChange, carpetaId, resultados, o
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Cancelar
           </Button>
-          <Button onClick={handleConfirmar} disabled={isPending || resultados.length === 0}>
-            {isPending ? "Guardando..." : `Confirmar y simular (${cantidadSeleccionada})`}
+          <Button onClick={handleAceptarTodos} disabled={resultados.length === 0}>
+            Aceptar todos
           </Button>
         </div>
       </DialogContent>

@@ -2,8 +2,7 @@
 
 import { Fragment, useMemo, useState, useTransition } from "react";
 
-import { actualizarPagaDumping, clasificarNcmSkus, type ClasificacionSkuResultado } from "@/app/(app)/carpetas/[id]/skus-actions";
-import { NcmRevisionDialog } from "@/components/ncm/NcmRevisionDialog";
+import { actualizarPagaDumping } from "@/app/(app)/carpetas/[id]/skus-actions";
 import { Button } from "@/components/ui/button";
 import {
   Table,
@@ -57,24 +56,6 @@ export function SkusEditor({ carpetaId, skus, costos, costosSku = [], diConfirma
   const { toast } = useToast();
   const [isPending, startTransition] = useTransition();
   const [expandidos, setExpandidos] = useState<Set<string>>(new Set());
-
-  const [clasificando, startClasificacion] = useTransition();
-  const [resultadosNcm, setResultadosNcm] = useState<ClasificacionSkuResultado[]>([]);
-  const [revisionAbierta, setRevisionAbierta] = useState(false);
-
-  const skusSinNcm = skus.filter((s) => !s.ncm_id);
-
-  function handleAutoClasificar() {
-    startClasificacion(async () => {
-      const resultado = await clasificarNcmSkus(carpetaId);
-      if (resultado.error) {
-        toast({ title: "No se pudo clasificar", description: resultado.error, variant: "destructive" });
-        return;
-      }
-      setResultadosNcm(resultado.resultados ?? []);
-      setRevisionAbierta(true);
-    });
-  }
 
   // Cada línea de costo se prorratea entre SKUs según su base correcta:
   // FOB para impuestos/seguro/honorarios (% del valor de la mercadería),
@@ -173,26 +154,6 @@ export function SkusEditor({ carpetaId, skus, costos, costosSku = [], diConfirma
 
   return (
     <div className="space-y-3">
-      {skusSinNcm.length > 0 && (
-        <div className="flex items-center justify-between rounded-md border border-amber-200 bg-amber-50 px-3 py-2">
-          <p className="text-xs text-amber-900">
-            {skusSinNcm.length} SKU{skusSinNcm.length > 1 ? "s" : ""} sin NCM asignado. Podés cargarlo a mano o
-            proponer una clasificación automática a partir de la descripción.
-          </p>
-          <Button size="sm" onClick={handleAutoClasificar} disabled={clasificando}>
-            {clasificando ? "Clasificando..." : "Auto-clasificar NCM"}
-          </Button>
-        </div>
-      )}
-
-      <NcmRevisionDialog
-        open={revisionAbierta}
-        onOpenChange={setRevisionAbierta}
-        carpetaId={carpetaId}
-        resultados={resultadosNcm}
-        onConfirmado={() => setResultadosNcm([])}
-      />
-
       <div className="space-y-2">
         <h3 className="text-sm font-medium">Costo por unidad (landed cost)</h3>
         <p className="text-xs text-muted-foreground">

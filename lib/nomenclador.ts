@@ -71,14 +71,19 @@ function cargarNomenclador(): Map<string, PosicionNcm> {
   const comprimido = readFileSync(NOMENCLADOR_PATH);
   const texto = gunzipSync(comprimido).toString("latin1");
 
+  // Para un mismo NCM de 8 dígitos suele haber varias líneas: una de
+  // encabezado (sin datos, ej. "--Los demás", con los campos de tributo en
+  // blanco) y una o más líneas hoja con sufijo SIM (ej. "4203.29.00.100V" =
+  // "Cortados en forma", "4203.29.00.900N" = "Los demás"). En el arancel, la
+  // variante catch-all "Los/Las demás" siempre se lista al final del grupo —
+  // por eso nos quedamos con la ÚLTIMA línea de cada NCM8 (no con la de
+  // descripción más larga, que terminaba eligiendo variantes específicas en
+  // vez del catch-all).
   const mapa = new Map<string, PosicionNcm>();
   for (const linea of texto.split("\n")) {
     const pos = parseLinea(linea);
     if (!pos) continue;
-    const existente = mapa.get(pos.ncm8);
-    if (!existente || pos.descripcion.length > existente.descripcion.length) {
-      mapa.set(pos.ncm8, pos);
-    }
+    mapa.set(pos.ncm8, pos);
   }
 
   cachePorNcm8 = mapa;

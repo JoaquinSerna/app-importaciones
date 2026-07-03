@@ -173,6 +173,8 @@ export interface Documento {
   created_at: string;
 }
 
+export type NcmOrigen = "clasificacion_automatica" | "manual" | "despacho_real";
+
 export interface Sku {
   id: string;
   carpeta_id: string;
@@ -184,6 +186,7 @@ export interface Sku {
   peso_kg: number | null;
   cbm: number | null;
   ncm_id: string | null;
+  ncm_origen: NcmOrigen | null;
   paga_dumping: boolean;
   created_at: string;
 }

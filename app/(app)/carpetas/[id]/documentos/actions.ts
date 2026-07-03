@@ -415,19 +415,36 @@ export async function subirDocumento(
   tipo: TipoDocumento,
   formData: FormData
 ): Promise<Documento> {
-  const supabase = createClient();
-  const { data: userData } = await supabase.auth.getUser();
-
   const file = formData.get("file") as File | null;
   if (!file) throw new Error("No se recibió ningún archivo.");
 
   const arrayBuffer = await file.arrayBuffer();
   const buffer = Buffer.from(arrayBuffer);
-  const path = `${carpetaId}/${tipo}/${Date.now()}-${file.name}`;
+  return registrarDocumentoDesdeBuffer(carpetaId, tipo, buffer, file.name, file.type);
+}
+
+/**
+ * Sube un buffer ya leído a Storage, crea el registro en `documentos`, extrae
+ * datos con IA y sincroniza SKUs/costos — es el cuerpo de `subirDocumento`
+ * factorizado para poder reusarlo desde `crearCarpetaDesdeSimulacion`
+ * (donde el archivo llega como parte del alta de la carpeta, no de un
+ * `<input type="file">` suelto en la tab Documentos).
+ */
+export async function registrarDocumentoDesdeBuffer(
+  carpetaId: string,
+  tipo: TipoDocumento,
+  buffer: Buffer,
+  fileName: string,
+  mimeType: string
+): Promise<Documento> {
+  const supabase = createClient();
+  const { data: userData } = await supabase.auth.getUser();
+
+  const path = `${carpetaId}/${tipo}/${Date.now()}-${fileName}`;
 
   const { error: uploadError } = await supabase.storage
     .from(BUCKET_DOCUMENTOS)
-    .upload(path, buffer, { contentType: file.type });
+    .upload(path, buffer, { contentType: mimeType });
   if (uploadError) throw new Error(`Error subiendo archivo: ${uploadError.message}`);
 
   const { data: urlData } = supabase.storage.from(BUCKET_DOCUMENTOS).getPublicUrl(path);
@@ -438,7 +455,7 @@ export async function subirDocumento(
     .insert({
       carpeta_id: carpetaId,
       tipo,
-      file_name: file.name,
+      file_name: fileName,
       file_url: urlData.publicUrl,
       estado: "procesando",
       created_by: userData?.user?.id ?? null,
@@ -449,7 +466,7 @@ export async function subirDocumento(
 
   // Extraer datos con IA
   try {
-    const datos = await extraerDatosDocumento(buffer, tipo, file.type);
+    const datos = await extraerDatosDocumento(buffer, tipo, mimeType);
     await supabase
       .from("documentos")
       .update({ estado: "extraido", datos_extraidos: datos })

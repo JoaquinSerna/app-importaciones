@@ -1,9 +1,16 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useRef, useState, useTransition } from "react";
 import { Plus, X } from "lucide-react";
 
-import { crearCarpetaDesdeSimulacion } from "@/app/(app)/carpetas/nueva/actions";
+import {
+  clasificarItemsSimulador,
+  crearCarpetaDesdeSimulacion,
+  extraerItemsProforma,
+  type CrearCarpetaInput,
+  type ItemCarpetaInput,
+} from "@/app/(app)/carpetas/nueva/actions";
+import { NcmRevisionDialog, type FilaClasificacionNcm, type ResultadoAceptacionNcm } from "@/components/ncm/NcmRevisionDialog";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -15,13 +22,24 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useToast } from "@/components/ui/use-toast";
 import { calcularArancelPonderado, calcularCascada, calcularFactorContenedor, type ResultadoCascada } from "@/lib/calculadora-costos";
-import type { NcmArancel, ParametrosGlobales, TipoContenedor, TipoImportacion } from "@/lib/types";
+import { construirNcmArancelProvisorio } from "@/lib/ncm-defaults";
+import type { NcmArancel, NcmOrigen, ParametrosGlobales, TipoContenedor, TipoImportacion } from "@/lib/types";
 
-interface LineaNcm {
-  ncmId: string;
-  fobUsd: string;
+interface ItemForm {
+  descripcion: string;
+  cantidad: string;
+  precioUnitarioFobUsd: string;
+}
+
+interface NcmConfirmado {
+  ncmCodigo: string | null;
+  diePct: number;
+  ivaPct: 21 | 10.5;
+  pagaIvaAdicional: boolean;
+  ncmOrigen: NcmOrigen | null;
 }
 
 const MODALIDADES: { value: TipoContenedor; label: string }[] = [
@@ -34,6 +52,10 @@ const TIPOS_IMPORTACION: { value: TipoImportacion; label: string; descripcion: s
   { value: "bien_de_cambio", label: "Bien de cambio", descripcion: "Paga todo lo que tenga configurado el NCM" },
   { value: "bien_de_uso", label: "Bien de uso", descripcion: "Solo paga derechos de importación + IVA" },
 ];
+
+function itemVacio(): ItemForm {
+  return { descripcion: "", cantidad: "1", precioUnitarioFobUsd: "" };
+}
 
 function usd(n: number) {
   return n.toLocaleString("es-AR", { style: "currency", currency: "USD", maximumFractionDigits: 2 });
@@ -51,40 +73,132 @@ function fmtFactor(f: number) {
 export function SimuladorForm({
   parametros,
   proveedores,
-  ncms,
 }: {
   parametros: ParametrosGlobales | null;
   proveedores: { id: string; nombre: string }[];
-  ncms: NcmArancel[];
 }) {
   const { toast } = useToast();
   const [isPending, startTransition] = useTransition();
+  const [clasificando, startClasificacion] = useTransition();
+  const [extrayendo, startExtraccion] = useTransition();
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [titulo, setTitulo] = useState("");
   const [proveedorId, setProveedorId] = useState("");
   const [cbmInput, setCbmInput] = useState("");
   const [pesoInput, setPesoInput] = useState("");
-  const [lineasNcm, setLineasNcm] = useState<LineaNcm[]>([{ ncmId: "", fobUsd: "" }]);
+  const [items, setItems] = useState<ItemForm[]>([itemVacio()]);
+  const [proformaFile, setProformaFile] = useState<File | null>(null);
   const [modalidad, setModalidad] = useState<TipoContenedor>("40HQ");
   const [fleteManual, setFleteManual] = useState("");
   const [contenedorLleno, setContenedorLleno] = useState(true);
   const [tipoImportacion, setTipoImportacion] = useState<TipoImportacion>("bien_de_cambio");
 
+  // Clasificación NCM: corre en background sin bloquear el resto del form.
+  const [clasificacionPorIndex, setClasificacionPorIndex] = useState<Record<number, FilaClasificacionNcm>>({});
+  const [confirmadosPorIndex, setConfirmadosPorIndex] = useState<Record<number, NcmConfirmado>>({});
+  const [bannerVisible, setBannerVisible] = useState(false);
+  const [revisionAbierta, setRevisionAbierta] = useState(false);
+
   const [resultado, setResultado] = useState<ResultadoCascada | null>(null);
   const [ncmSimulado, setNcmSimulado] = useState<NcmArancel | null>(null);
   const [dirty, setDirty] = useState(false);
 
-  const fobTotal = lineasNcm.reduce((acc, l) => acc + (parseFloat(l.fobUsd) || 0), 0);
+  const fobTotal = items.reduce(
+    (acc, it) => acc + (parseFloat(it.cantidad) || 0) * (parseFloat(it.precioUnitarioFobUsd) || 0),
+    0
+  );
 
-  function actualizarLinea(idx: number, cambios: Partial<LineaNcm>) {
-    setLineasNcm((prev) => prev.map((l, i) => (i === idx ? { ...l, ...cambios } : l)));
+  function actualizarItem(idx: number, cambios: Partial<ItemForm>) {
+    setItems((prev) => prev.map((it, i) => (i === idx ? { ...it, ...cambios } : it)));
     setDirty(true);
   }
-  function agregarLinea() {
-    setLineasNcm((prev) => [...prev, { ncmId: "", fobUsd: "" }]);
+  function agregarItem() {
+    setItems((prev) => [...prev, itemVacio()]);
   }
-  function quitarLinea(idx: number) {
-    setLineasNcm((prev) => prev.filter((_, i) => i !== idx));
+  function quitarItem(idx: number) {
+    setItems((prev) => prev.filter((_, i) => i !== idx));
+    setDirty(true);
+  }
+
+  // Dispara la clasificación NCM para la lista actual de ítems — se llama una
+  // sola vez por lote: al terminar de extraer la proforma, o al apretar
+  // "Listo, cargué todo" en carga manual. No bloquea el resto del formulario.
+  function dispararClasificacion(itemsActuales: ItemForm[]) {
+    const conDescripcion = itemsActuales.filter((it) => it.descripcion.trim());
+    if (conDescripcion.length === 0) return;
+    startClasificacion(async () => {
+      const r = await clasificarItemsSimulador(itemsActuales.map((it) => ({ descripcion: it.descripcion })));
+      if (r.error) {
+        toast({ title: "No se pudo clasificar los NCM", description: r.error, variant: "destructive" });
+        return;
+      }
+      const mapa: Record<number, FilaClasificacionNcm> = {};
+      (r.resultados ?? []).forEach((res) => {
+        mapa[res.index] = {
+          index: res.index,
+          descripcionItem: itemsActuales[res.index]?.descripcion ?? "",
+          ncmPropuesto: res.ncmPropuesto,
+          descripcionOficial: res.descripcionOficial,
+          diePct: res.diePct,
+          confianza: res.confianza,
+          estado: res.estado,
+          opcionesAlternativas: res.opcionesAlternativas.map((o) => ({
+            ncm: o.ncm,
+            descripcionOficial: o.descripcionOficial,
+            diePct: o.diePct,
+            diferencia: o.diferencia,
+          })),
+          razonamiento: res.razonamiento,
+        };
+      });
+      setClasificacionPorIndex(mapa);
+      setBannerVisible(true);
+    });
+  }
+
+  function handleFile(file: File) {
+    setProformaFile(file);
+    const formData = new FormData();
+    formData.append("file", file);
+    startExtraccion(async () => {
+      const r = await extraerItemsProforma(formData);
+      if (r.error) {
+        toast({ title: "No se pudo extraer la proforma", description: r.error, variant: "destructive" });
+        return;
+      }
+      if (!r.items || r.items.length === 0) {
+        toast({ title: "No se encontraron ítems en la proforma", description: "Podés cargarlos a mano abajo." });
+        return;
+      }
+      const nuevosItems: ItemForm[] = r.items.map((it) => ({
+        descripcion: it.descripcion,
+        cantidad: String(it.cantidad),
+        precioUnitarioFobUsd: String(it.precioUnitarioFobUsd),
+      }));
+      setItems(nuevosItems);
+      setConfirmadosPorIndex({});
+      setClasificacionPorIndex({});
+      setDirty(true);
+      dispararClasificacion(nuevosItems);
+    });
+  }
+
+  function handleAceptarNcms(resultadosAceptados: ResultadoAceptacionNcm[]) {
+    setConfirmadosPorIndex((prev) => {
+      const next = { ...prev };
+      for (const r of resultadosAceptados) {
+        next[r.index] = {
+          ncmCodigo: r.ncmCodigo,
+          diePct: r.diePct,
+          ivaPct: r.ivaPct,
+          pagaIvaAdicional: r.pagaIvaAdicional,
+          ncmOrigen: r.ncmOrigen,
+        };
+      }
+      return next;
+    });
+    setBannerVisible(false);
     setDirty(true);
   }
 
@@ -95,26 +209,45 @@ export function SimuladorForm({
     ? calcularFactorContenedor(cbm, peso, modalidad, contenedorLleno)
     : null;
 
+  // Arma el NcmArancel (real o default provisorio) de cada ítem — se usa
+  // tanto para simular como para crear la carpeta, así que arma el mismo
+  // payload de ítems una sola vez.
+  function armarItemsParaCalculo(): { fobUsd: number; ncm: NcmArancel }[] {
+    return items.map((it, i) => {
+      const confirmado = confirmadosPorIndex[i];
+      return {
+        fobUsd: (parseFloat(it.cantidad) || 0) * (parseFloat(it.precioUnitarioFobUsd) || 0),
+        ncm: construirNcmArancelProvisorio({
+          ncmCodigo: confirmado?.ncmCodigo ?? null,
+          diePct: confirmado?.diePct ?? 20,
+          ivaPct: confirmado?.ivaPct ?? 21,
+          pagaIvaAdicional: confirmado?.pagaIvaAdicional ?? true,
+        }),
+      };
+    });
+  }
+
   function handleSimular() {
     if (!parametros) return;
+    if (items.length === 0 || items.some((it) => !it.descripcion.trim())) {
+      toast({ title: "Completá la descripción de todos los ítems" });
+      return;
+    }
     if (fobTotal <= 0) {
-      toast({ title: "FOB inválido", description: "Ingresá al menos una línea con NCM y FOB mayor a 0." });
+      toast({ title: "FOB inválido", description: "Cargá cantidad y precio FOB unitario de cada ítem." });
       return;
     }
-    if (lineasNcm.some((l) => !l.ncmId || !(parseFloat(l.fobUsd) > 0))) {
-      toast({ title: "Completá todas las líneas", description: "Cada línea necesita un NCM y un FOB mayor a 0." });
+    if (items.some((it) => !(parseFloat(it.cantidad) > 0) || !(parseFloat(it.precioUnitarioFobUsd) > 0))) {
+      toast({ title: "Completá todos los ítems", description: "Cada ítem necesita cantidad y FOB unitario mayor a 0." });
       return;
     }
-    const arancelPonderado = calcularArancelPonderado(
-      lineasNcm.map((l) => ({
-        fobUsd: parseFloat(l.fobUsd) || 0,
-        ncm: ncms.find((n) => n.id === l.ncmId) ?? null,
-      }))
-    );
+
+    const arancelPonderado = calcularArancelPonderado(armarItemsParaCalculo());
     if (!arancelPonderado) {
-      toast({ title: "NCM requerido", description: "Seleccioná al menos un NCM." });
+      toast({ title: "No se pudo calcular el arancel", description: "Revisá los ítems cargados." });
       return;
     }
+
     const r = calcularCascada(parametros, {
       fobTotalUsd: fobTotal,
       cbmTotal: cbm,
@@ -132,23 +265,39 @@ export function SimuladorForm({
   }
 
   function handleCrearCarpeta() {
-    if (!parametros || !resultado || !ncmSimulado) return;
+    if (!parametros || !resultado) return;
     startTransition(async () => {
       try {
-        await crearCarpetaDesdeSimulacion({
+        const itemsPayload: ItemCarpetaInput[] = items.map((it, i) => {
+          const confirmado = confirmadosPorIndex[i];
+          return {
+            descripcion: it.descripcion.trim(),
+            cantidad: parseFloat(it.cantidad) || 0,
+            precioUnitarioFobUsd: parseFloat(it.precioUnitarioFobUsd) || 0,
+            ncmCodigo: confirmado?.ncmCodigo ?? null,
+            diePct: confirmado?.diePct ?? 20,
+            ivaPct: confirmado?.ivaPct ?? 21,
+            pagaIvaAdicional: confirmado?.pagaIvaAdicional ?? true,
+            ncmOrigen: confirmado?.ncmOrigen ?? null,
+          };
+        });
+
+        const input: CrearCarpetaInput = {
           titulo: titulo.trim() || undefined,
           proveedorId: proveedorId || undefined,
-          fobTotalUsd: fobTotal,
           cbmTotal: cbm,
           pesoTotalKg: peso,
-          ncm: ncmSimulado.codigo_ncm,
-          ncmId: lineasNcm.length === 1 ? lineasNcm[0].ncmId : undefined,
-          ncmArancel: ncmSimulado,
           modalidad,
           fleteInternacionalUsd: fleteManual ? parseFloat(fleteManual) : undefined,
           tipoImportacion,
-          lineasNcm: lineasNcm.map((l) => ({ ncmId: l.ncmId, fobUsd: parseFloat(l.fobUsd) || 0 })),
-        });
+          items: itemsPayload,
+        };
+
+        const formData = new FormData();
+        formData.append("input", JSON.stringify(input));
+        if (proformaFile) formData.append("proformaFile", proformaFile);
+
+        await crearCarpetaDesdeSimulacion(formData);
       } catch (err) {
         toast({ title: "Error creando la carpeta", description: err instanceof Error ? err.message : "Error desconocido" });
       }
@@ -158,6 +307,8 @@ export function SimuladorForm({
   if (!parametros) {
     return <p className="text-sm text-destructive">No hay parámetros globales configurados.</p>;
   }
+
+  const resultadosParaDialogo = Object.values(clasificacionPorIndex).sort((a, b) => a.index - b.index);
 
   return (
     <div className="grid gap-6 lg:grid-cols-2">
@@ -249,43 +400,82 @@ export function SimuladorForm({
           )}
 
           <div className="space-y-2">
-            <Label>Productos / NCM *</Label>
+            <Label>Productos *</Label>
             <p className="text-xs text-muted-foreground -mt-1">
-              Una línea por cada NCM distinto de la compra, con su porción de FOB. El FOB total se calcula solo.
+              Subí la proforma o cargá los ítems a mano — descripción, cantidad y FOB unitario de cada uno.
             </p>
-            <div className="space-y-2">
-              {lineasNcm.map((linea, idx) => (
-                <div key={idx} className="flex items-center gap-2">
-                  <Select value={linea.ncmId} onValueChange={(v) => actualizarLinea(idx, { ncmId: v })}>
-                    <SelectTrigger className="flex-1"><SelectValue placeholder="NCM" /></SelectTrigger>
-                    <SelectContent>
-                      {ncms.map((n) => (
-                        <SelectItem key={n.id} value={n.id}>
-                          {n.codigo_ncm}{n.descripcion ? ` — ${n.descripcion}` : ""}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <Input
-                    type="number" min="0" step="0.01" placeholder="FOB USD" className="w-32"
-                    value={linea.fobUsd}
-                    onChange={(e) => actualizarLinea(idx, { fobUsd: e.target.value })}
-                  />
-                  <Button
-                    type="button" size="sm" variant="ghost"
-                    onClick={() => quitarLinea(idx)}
-                    disabled={lineasNcm.length === 1}
-                  >
-                    <X className="h-3.5 w-3.5" />
-                  </Button>
-                </div>
-              ))}
-            </div>
-            <Button type="button" size="sm" variant="outline" onClick={agregarLinea}>
-              <Plus className="h-3.5 w-3.5 mr-1" />
-              Agregar NCM
+
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="application/pdf,.xlsx,.xls"
+              className="hidden"
+              onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFile(f); }}
+            />
+            <Button type="button" size="sm" variant="outline" onClick={() => fileInputRef.current?.click()} disabled={extrayendo}>
+              {extrayendo ? "Extrayendo ítems..." : "Subir proforma (PDF/Excel)"}
             </Button>
-            {ncms.length === 0 && <p className="text-xs text-destructive">No hay NCMs cargados.</p>}
+            {proformaFile && <span className="text-xs text-muted-foreground ml-2">{proformaFile.name}</span>}
+
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Descripción</TableHead>
+                  <TableHead className="text-right w-24">Cantidad</TableHead>
+                  <TableHead className="text-right w-32">FOB unit. USD</TableHead>
+                  <TableHead className="w-8" />
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {items.map((it, idx) => (
+                  <TableRow key={idx}>
+                    <TableCell>
+                      <Input
+                        value={it.descripcion}
+                        onChange={(e) => actualizarItem(idx, { descripcion: e.target.value })}
+                        placeholder="Descripción del producto"
+                      />
+                    </TableCell>
+                    <TableCell>
+                      <Input
+                        type="number" min="0" step="1" className="text-right"
+                        value={it.cantidad}
+                        onChange={(e) => actualizarItem(idx, { cantidad: e.target.value })}
+                      />
+                    </TableCell>
+                    <TableCell>
+                      <Input
+                        type="number" min="0" step="0.01" className="text-right"
+                        value={it.precioUnitarioFobUsd}
+                        onChange={(e) => actualizarItem(idx, { precioUnitarioFobUsd: e.target.value })}
+                      />
+                    </TableCell>
+                    <TableCell>
+                      <Button type="button" size="sm" variant="ghost" onClick={() => quitarItem(idx)} disabled={items.length === 1}>
+                        <X className="h-3.5 w-3.5" />
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+            <div className="flex items-center gap-2">
+              <Button type="button" size="sm" variant="outline" onClick={agregarItem}>
+                <Plus className="h-3.5 w-3.5 mr-1" />
+                Agregar ítem
+              </Button>
+              <Button type="button" size="sm" variant="outline" onClick={() => dispararClasificacion(items)} disabled={clasificando}>
+                {clasificando ? "Clasificando..." : "Listo, cargué todo"}
+              </Button>
+            </div>
+
+            {bannerVisible && !clasificando && (
+              <div className="flex items-center justify-between rounded-md border border-amber-200 bg-amber-50 px-3 py-2">
+                <p className="text-xs text-amber-900">Los NCM se clasificaron automáticamente.</p>
+                <Button type="button" size="sm" onClick={() => setRevisionAbierta(true)}>Revisar NCMs</Button>
+              </div>
+            )}
+
             {fobTotal > 0 && (
               <p className="text-sm font-medium pt-1">FOB total: {usd(fobTotal)}</p>
             )}
@@ -309,7 +499,7 @@ export function SimuladorForm({
           {resultado && ncmSimulado && !dirty && (
             <div className="rounded-md border bg-muted/40 p-3 text-sm grid grid-cols-2 gap-x-4 gap-y-1">
               <p className="col-span-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1">
-                Aranceles {lineasNcm.length > 1 ? "(promedio ponderado por FOB)" : "del NCM"}
+                Aranceles {items.length > 1 ? "(promedio ponderado por FOB)" : "del NCM"}
               </p>
               <span className="text-muted-foreground">Derecho:</span><span>{pct(ncmSimulado.derecho_importacion_pct)}</span>
               <span className="text-muted-foreground">IVA:</span><span>{pct(ncmSimulado.iva_pct)}</span>
@@ -319,6 +509,11 @@ export function SimuladorForm({
               <span className={tipoImportacion === "bien_de_uso" ? "text-muted-foreground/40 line-through" : "text-muted-foreground"}>Tasa estadística:</span><span className={tipoImportacion === "bien_de_uso" ? "text-muted-foreground/40 line-through" : ""}>{pct(ncmSimulado.tasa_estadistica_pct)}</span>
               {tipoImportacion === "bien_de_uso" && (
                 <p className="col-span-2 text-xs text-amber-600 mt-1">Bien de uso: los tachados no se cobran.</p>
+              )}
+              {Object.keys(confirmadosPorIndex).length < items.length && (
+                <p className="col-span-2 text-xs text-amber-600 mt-1">
+                  Hay ítems sin NCM confirmado — se están simulando con el arancel default (20%/21%/20%).
+                </p>
               )}
             </div>
           )}
@@ -343,6 +538,13 @@ export function SimuladorForm({
           )}
         </CardContent>
       </Card>
+
+      <NcmRevisionDialog
+        open={revisionAbierta}
+        onOpenChange={setRevisionAbierta}
+        resultados={resultadosParaDialogo}
+        onAceptar={handleAceptarNcms}
+      />
 
       {/* Cascada */}
       <Card>

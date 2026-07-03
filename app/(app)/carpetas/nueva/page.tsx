@@ -1,6 +1,5 @@
 import { SimuladorForm } from "@/components/simulador/SimuladorForm";
 import { createClient } from "@/lib/supabase/server";
-import type { NcmArancel } from "@/lib/types";
 
 export default async function NuevaCarpetaPage() {
   const supabase = createClient();
@@ -17,23 +16,17 @@ export default async function NuevaCarpetaPage() {
     .select("id, nombre")
     .order("nombre", { ascending: true });
 
-  const { data: ncms } = await supabase
-    .from("ncm_aranceles")
-    .select("*")
-    .order("codigo_ncm", { ascending: true });
-
   return (
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-semibold">Nueva carpeta / Simulador de costos</h1>
         <p className="text-muted-foreground">
-          Simulá la cascada impositiva de una importación antes de crear la carpeta.
+          Cargá la proforma o los ítems a mano — el NCM de cada producto se clasifica automáticamente antes de simular.
         </p>
       </div>
       <SimuladorForm
         parametros={parametros ?? null}
         proveedores={proveedores ?? []}
-        ncms={(ncms ?? []) as NcmArancel[]}
       />
     </div>
   );
