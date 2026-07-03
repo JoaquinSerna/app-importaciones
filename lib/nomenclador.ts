@@ -1,5 +1,12 @@
 // Lectura y búsqueda sobre el Arancel Integrado de AFIP (nomenclador NCM),
-// embebido comprimido en public/reference/nomenclador_30062026.txt.gz.
+// embebido comprimido en data/nomenclador_30062026.txt.gz.
+//
+// IMPORTANTE: este archivo NO puede vivir en public/ — en Vercel, todo lo que
+// está en public/ se sirve desde el CDN estático y NO se empaqueta con las
+// funciones serverless, así que un fs.readFileSync ahí adentro tira ENOENT en
+// producción (aunque funcione perfecto en local con `next dev`, porque ahí sí
+// corre todo del mismo filesystem). Por eso vive en data/ en la raíz del
+// proyecto, que Next.js sí traza e incluye en el bundle de la función.
 //
 // Formato de cada línea de datos (separado por "@"):
 //   2@<NCM>@<F1:DerImp>@<F2:ReintExtra>@<F3:DIE>@<F4:ReintIntra>@<F5:DIIntra>@<F6:DerEspMin>@<U1>@<U2>@<Descripción>
@@ -30,7 +37,7 @@ export interface PosicionNcm {
   descripcion: string;
 }
 
-const NOMENCLADOR_PATH = path.join(process.cwd(), "public", "reference", "nomenclador_30062026.txt.gz");
+const NOMENCLADOR_PATH = path.join(process.cwd(), "data", "nomenclador_30062026.txt.gz");
 
 let cachePorNcm8: Map<string, PosicionNcm> | null = null;
 
