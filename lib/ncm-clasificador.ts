@@ -41,7 +41,18 @@ async function crearMensajeConRetry(
 
 const TOOL_CAPITULOS = "identificar_capitulos";
 
-async function identificarCapitulos(descripcionSku: string): Promise<string[]> {
+const REGLA_FUNCION_VS_MATERIAL = `REGLA CLAVE (Regla General Interpretativa 1 del Sistema Armonizado): un artículo manufacturado y terminado se clasifica según QUÉ ES y PARA QUÉ SIRVE (su función/uso final), no según los materiales que se mencionan en su descripción de pasada. Los capítulos de materias primas (ej. 39 = plásticos en formas primarias, 40 = caucho en formas primarias, 72-81 = metales en formas primarias/semielaborados) son SOLO para eso: materia prima sin transformar en un artículo de uso final. Si la descripción nombra un objeto de uso final reconocible (deportivo, mueble, herramienta, juguete, envase, indumentaria, etc.) que simplemente está hecho o recubierto de determinado material, el capítulo correcto es el del USO FINAL del artículo, nunca el del material.
+Ejemplos:
+- "PVC Coating Kettle Bell" / "pesa rusa con recubrimiento de PVC" → es un artículo de gimnasia/cultura física → Capítulo 95 (artículos para deportes), NO Capítulo 39 (el PVC es solo el recubrimiento, no lo que el artículo ES).
+- "Silla de plástico" → Capítulo 94 (muebles), no Capítulo 39.
+- "Juguete de goma" → Capítulo 95 (juguetes), no Capítulo 40.
+- "Balde plástico" → Capítulo 39 SÍ aplica acá, porque un balde/envase genérico de plástico sin otro uso específico es justamente un artículo de plástico (no hay otro capítulo de "uso final" más específico que lo reclame).`;
+
+async function identificarCapitulos(descripcionSku: string, capitulosDescartados: string[] = []): Promise<string[]> {
+  const exclusion = capitulosDescartados.length > 0
+    ? `\n\nYa se probó con el/los capítulo${capitulosDescartados.length > 1 ? "s" : ""} ${capitulosDescartados.join(", ")} y no había ninguna posición razonable ahí — significa que esos capítulos están mal, probablemente porque te dejaste guiar por un material mencionado de pasada en vez de la función del artículo. Proponé capítulos DISTINTOS a esos.`
+    : "";
+
   const response = await crearMensajeConRetry({
     model: MODELO_CLASIFICADOR,
     max_tokens: 512,
@@ -65,14 +76,13 @@ async function identificarCapitulos(descripcionSku: string): Promise<string[]> {
       },
     ],
     tool_choice: { type: "tool", name: TOOL_CAPITULOS },
+    system: `Sos un despachante de aduana argentino experto en el Nomenclador Común del Mercosur (NCM / Sistema Armonizado).\n\n${REGLA_FUNCION_VS_MATERIAL}`,
     messages: [
       {
         role: "user",
-        content: `Sos un despachante de aduana argentino experto en el Nomenclador Común del Mercosur (NCM / Sistema Armonizado).
+        content: `Producto a clasificar: "${descripcionSku}"
 
-Producto a clasificar: "${descripcionSku}"
-
-Indicá los 1 a 3 capítulos (2 dígitos, 01 a 97) del arancel donde más probablemente se clasifica este producto. Si dudás entre materiales (ej. un producto textil que también podría ser de plástico), incluí ambos capítulos candidatos.`,
+Indicá los 1 a 3 capítulos (2 dígitos, 01 a 97) del arancel donde más probablemente se clasifica este producto, aplicando la regla de función vs. material. Si dudás entre dos capítulos igual de razonables, incluí ambos.${exclusion}`,
       },
     ],
   });
@@ -81,7 +91,7 @@ Indicá los 1 a 3 capítulos (2 dígitos, 01 a 97) del arancel donde más probab
     (b): b is Anthropic.ToolUseBlock => b.type === "tool_use" && b.name === TOOL_CAPITULOS
   );
   const capitulos = (toolUse?.input as { capitulos?: string[] } | undefined)?.capitulos ?? [];
-  return capitulos.filter((c) => /^\d{2}$/.test(c));
+  return capitulos.filter((c) => /^\d{2}$/.test(c) && !capitulosDescartados.includes(c));
 }
 
 // ---------------------------------------------------------------------
@@ -114,7 +124,8 @@ const REGLAS_CLASIFICACION = `REGLAS DE CLASIFICACIÓN:
 - Si la descripción menciona "electric", "motorized", "eléctrico", "magnético" o equivalentes, priorizá subpartidas que lo nombren explícitamente antes de caer en "Los demás".
 - Para telas o indumentaria sin % de composición declarado: ropa de trabajo/industrial → asumí sintético/poliéster; indumentaria informal/casual → asumí algodón. Dejalo aclarado en el razonamiento.
 - Solo podés proponer un NCM que esté LITERALMENTE en la lista de candidatas de abajo (con su texto exacto). No inventes ni modifiques códigos NCM ni porcentajes de DIE: son datos oficiales ya provistos, vos solo elegís cuál aplica.
-- Si ninguna candidata de la lista es razonable para este producto, marcá estado="no_encontrado" y explicá por qué en el razonamiento — no fuerces una respuesta.`;
+- Si TODAS las candidatas de la lista son posiciones de materia prima/formas primarias (resinas, polímeros, chapas, perfiles, etc. sin transformar) y el producto descripto es claramente un artículo manufacturado de uso final (deportivo, mueble, herramienta, juguete, etc. — ver REGLA_FUNCION_VS_MATERIAL), NINGUNA candidata es correcta aunque el material coincida: marcá estado="no_encontrado" y explicá en el razonamiento que se buscó en el capítulo de material equivocado, no en el capítulo de uso final. No fuerces la respuesta menos mala de la lista.
+- Si ninguna candidata de la lista es razonable para este producto por cualquier otro motivo, también marcá estado="no_encontrado" y explicá por qué — no fuerces una respuesta.`;
 
 function formatearCandidatas(posiciones: PosicionNcm[]): string {
   return posiciones
@@ -122,40 +133,24 @@ function formatearCandidatas(posiciones: PosicionNcm[]): string {
     .join("\n");
 }
 
-/** Clasifica un único SKU: identifica capítulos candidatos, filtra el nomenclador y le pide a Claude que elija la posición correcta. */
-export async function clasificarDescripcionNcm(descripcionSku: string): Promise<ClasificacionNcm> {
-  if (!process.env.ANTHROPIC_API_KEY) {
-    throw new Error("ANTHROPIC_API_KEY no está configurada. Configurá la variable de entorno para poder clasificar NCMs automáticamente.");
-  }
+function sinResultado(razonamiento: string): ClasificacionNcm {
+  return {
+    ncm_propuesto: null,
+    descripcion_oficial: null,
+    die_pct: null,
+    confianza: "baja",
+    estado: "no_encontrado",
+    opciones_alternativas: [],
+    razonamiento,
+  };
+}
 
-  const capitulos = await identificarCapitulos(descripcionSku);
-  if (capitulos.length === 0) {
-    return {
-      ncm_propuesto: null,
-      descripcion_oficial: null,
-      die_pct: null,
-      confianza: "baja",
-      estado: "no_encontrado",
-      opciones_alternativas: [],
-      razonamiento: "No se pudo identificar un capítulo arancelario probable a partir de la descripción.",
-    };
-  }
-
-  const candidatasCapitulo = filtrarPorCapitulos(capitulos);
-  const candidatas = rankearPorDescripcion(candidatasCapitulo, descripcionSku, 200);
-
-  if (candidatas.length === 0) {
-    return {
-      ncm_propuesto: null,
-      descripcion_oficial: null,
-      die_pct: null,
-      confianza: "baja",
-      estado: "no_encontrado",
-      opciones_alternativas: [],
-      razonamiento: `No se encontraron posiciones NCM en el capítulo ${capitulos.join("/")} del nomenclador embebido.`,
-    };
-  }
-
+/** Segundo paso: dado un capítulo ya identificado y sus candidatas, le pide a Claude que elija la posición correcta (o decline si ninguna sirve). */
+async function elegirNcmEntreCandidatas(
+  descripcionSku: string,
+  capitulos: string[],
+  candidatas: PosicionNcm[]
+): Promise<ClasificacionNcm> {
   const response = await crearMensajeConRetry({
     model: MODELO_CLASIFICADOR,
     max_tokens: 2048,
@@ -191,7 +186,7 @@ export async function clasificarDescripcionNcm(descripcionSku: string): Promise<
       },
     ],
     tool_choice: { type: "tool", name: TOOL_CLASIFICACION },
-    system: `Sos un despachante de aduana argentino experto en clasificación arancelaria (NCM / Sistema Armonizado).\n\n${REGLAS_CLASIFICACION}`,
+    system: `Sos un despachante de aduana argentino experto en clasificación arancelaria (NCM / Sistema Armonizado).\n\n${REGLA_FUNCION_VS_MATERIAL}\n\n${REGLAS_CLASIFICACION}`,
     messages: [
       {
         role: "user",
@@ -210,15 +205,7 @@ Usá la herramienta "${TOOL_CLASIFICACION}" para responder.`,
   );
 
   if (!toolUse) {
-    return {
-      ncm_propuesto: null,
-      descripcion_oficial: null,
-      die_pct: null,
-      confianza: "baja",
-      estado: "no_encontrado",
-      opciones_alternativas: [],
-      razonamiento: "Claude no devolvió una clasificación estructurada para este producto.",
-    };
+    return sinResultado("Claude no devolvió una clasificación estructurada para este producto.");
   }
 
   const input = toolUse.input as {
@@ -238,28 +225,12 @@ Usá la herramienta "${TOOL_CLASIFICACION}" para responder.`,
   };
 
   if (input.estado === "no_encontrado" || !input.ncm_propuesto) {
-    return {
-      ncm_propuesto: null,
-      descripcion_oficial: null,
-      die_pct: null,
-      confianza: input.confianza ?? "baja",
-      estado: "no_encontrado",
-      opciones_alternativas: [],
-      razonamiento: input.razonamiento,
-    };
+    return { ...sinResultado(input.razonamiento), confianza: input.confianza ?? "baja" };
   }
 
   const principal = resolver(input.ncm_propuesto);
   if (!principal) {
-    return {
-      ncm_propuesto: null,
-      descripcion_oficial: null,
-      die_pct: null,
-      confianza: "baja",
-      estado: "no_encontrado",
-      opciones_alternativas: [],
-      razonamiento: `Claude propuso "${input.ncm_propuesto}" pero no se encontró exactamente en el nomenclador. Requiere carga manual.`,
-    };
+    return sinResultado(`Claude propuso "${input.ncm_propuesto}" pero no se encontró exactamente en el nomenclador. Requiere carga manual.`);
   }
 
   const opciones_alternativas: OpcionNcm[] = (input.estado === "ambiguo" ? input.opciones_alternativas ?? [] : [])
@@ -284,4 +255,59 @@ Usá la herramienta "${TOOL_CLASIFICACION}" para responder.`,
     opciones_alternativas,
     razonamiento: input.razonamiento,
   };
+}
+
+const MAX_INTENTOS_CAPITULO = 2;
+
+/**
+ * Clasifica un único SKU: identifica capítulos candidatos, filtra el
+ * nomenclador y le pide a Claude que elija la posición correcta. Si el
+ * primer capítulo elegido resulta un callejón sin salida (sin candidatas, o
+ * Claude decide que ninguna candidata aplica de verdad — típicamente porque
+ * se confundió un material mencionado de pasada con la función del
+ * artículo), reintenta una vez más pidiendo capítulos distintos a los ya
+ * descartados antes de rendirse.
+ */
+export async function clasificarDescripcionNcm(descripcionSku: string): Promise<ClasificacionNcm> {
+  if (!process.env.ANTHROPIC_API_KEY) {
+    throw new Error("ANTHROPIC_API_KEY no está configurada. Configurá la variable de entorno para poder clasificar NCMs automáticamente.");
+  }
+
+  const capitulosDescartados: string[] = [];
+  let ultimoResultado = sinResultado("No se pudo clasificar este producto.");
+
+  for (let intento = 1; intento <= MAX_INTENTOS_CAPITULO; intento++) {
+    const capitulos = await identificarCapitulos(descripcionSku, capitulosDescartados);
+    if (capitulos.length === 0) {
+      ultimoResultado = sinResultado(
+        capitulosDescartados.length > 0
+          ? `No se pudo identificar un capítulo alternativo distinto de ${capitulosDescartados.join(", ")}.`
+          : "No se pudo identificar un capítulo arancelario probable a partir de la descripción."
+      );
+      break;
+    }
+
+    const candidatasCapitulo = filtrarPorCapitulos(capitulos);
+    const candidatas = rankearPorDescripcion(candidatasCapitulo, descripcionSku, 200);
+
+    if (candidatas.length === 0) {
+      ultimoResultado = sinResultado(`No se encontraron posiciones NCM en el capítulo ${capitulos.join("/")} del nomenclador embebido.`);
+      capitulosDescartados.push(...capitulos);
+      continue;
+    }
+
+    const resultado = await elegirNcmEntreCandidatas(descripcionSku, capitulos, candidatas);
+    ultimoResultado = resultado;
+
+    if (resultado.estado !== "no_encontrado") {
+      return resultado;
+    }
+
+    // Claude decidió que ninguna candidata de este/estos capítulo(s) aplica
+    // de verdad — probablemente el capítulo elegido en el paso 1 fue el
+    // equivocado (material vs. función). Reintentamos con otros capítulos.
+    capitulosDescartados.push(...capitulos);
+  }
+
+  return ultimoResultado;
 }
