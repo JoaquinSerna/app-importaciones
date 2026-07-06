@@ -48,7 +48,7 @@ Ejemplos:
 - "Juguete de goma" → Capítulo 95 (juguetes), no Capítulo 40.
 - "Balde plástico" → Capítulo 39 SÍ aplica acá, porque un balde/envase genérico de plástico sin otro uso específico es justamente un artículo de plástico (no hay otro capítulo de "uso final" más específico que lo reclame).`;
 
-async function identificarCapitulos(descripcionSku: string, capitulosDescartados: string[] = []): Promise<string[]> {
+async function identificarCapitulos(descripcionParaPrompt: string, capitulosDescartados: string[] = []): Promise<string[]> {
   const exclusion = capitulosDescartados.length > 0
     ? `\n\nYa se probó con el/los capítulo${capitulosDescartados.length > 1 ? "s" : ""} ${capitulosDescartados.join(", ")} y no había ninguna posición razonable ahí — significa que esos capítulos están mal, probablemente porque te dejaste guiar por un material mencionado de pasada en vez de la función del artículo. Proponé capítulos DISTINTOS a esos.`
     : "";
@@ -80,7 +80,7 @@ async function identificarCapitulos(descripcionSku: string, capitulosDescartados
     messages: [
       {
         role: "user",
-        content: `Producto a clasificar: "${descripcionSku}"
+        content: `Producto a clasificar: ${descripcionParaPrompt}
 
 Indicá los 1 a 3 capítulos (2 dígitos, 01 a 97) del arancel donde más probablemente se clasifica este producto, aplicando la regla de función vs. material. Si dudás entre dos capítulos igual de razonables, incluí ambos.${exclusion}`,
       },
@@ -147,7 +147,7 @@ function sinResultado(razonamiento: string): ClasificacionNcm {
 
 /** Segundo paso: dado un capítulo ya identificado y sus candidatas, le pide a Claude que elija la posición correcta (o decline si ninguna sirve). */
 async function elegirNcmEntreCandidatas(
-  descripcionSku: string,
+  descripcionParaPrompt: string,
   capitulos: string[],
   candidatas: PosicionNcm[]
 ): Promise<ClasificacionNcm> {
@@ -190,7 +190,7 @@ async function elegirNcmEntreCandidatas(
     messages: [
       {
         role: "user",
-        content: `Producto a clasificar: "${descripcionSku}"
+        content: `Producto a clasificar: ${descripcionParaPrompt}
 
 Candidatas del Arancel Integrado de AFIP (capítulo${capitulos.length > 1 ? "s" : ""} ${capitulos.join(", ")}):
 ${formatearCandidatas(candidatas)}
@@ -267,17 +267,34 @@ const MAX_INTENTOS_CAPITULO = 2;
  * se confundió un material mencionado de pasada con la función del
  * artículo), reintenta una vez más pidiendo capítulos distintos a los ya
  * descartados antes de rendirse.
+ *
+ * `descripcionEs` (la traducción, si viene de una proforma) es CLAVE cuando
+ * la descripción original está en otro idioma (inglés/chino, lo más común):
+ * el ranking de candidatas (rankearPorDescripcion) es un simple matcheo de
+ * palabras clave contra el texto oficial del nomenclador, que está en
+ * español — sin la traducción, ese matcheo casi no encuentra nada en
+ * capítulos grandes (>200 posiciones) y la clasificación falla en seco
+ * aunque el capítulo elegido sea el correcto.
  */
-export async function clasificarDescripcionNcm(descripcionSku: string): Promise<ClasificacionNcm> {
+export async function clasificarDescripcionNcm(descripcionSku: string, descripcionEs?: string | null): Promise<ClasificacionNcm> {
   if (!process.env.ANTHROPIC_API_KEY) {
     throw new Error("ANTHROPIC_API_KEY no está configurada. Configurá la variable de entorno para poder clasificar NCMs automáticamente.");
   }
+
+  const traduccion = descripcionEs?.trim() || null;
+  // Para el ranking determinístico (contra texto en español) usamos siempre
+  // que se pueda la traducción; para los prompts de Claude le mostramos
+  // ambas, total el modelo entiende cualquier idioma igual.
+  const descripcionParaRanking = traduccion || descripcionSku;
+  const descripcionParaPrompt = traduccion && traduccion !== descripcionSku
+    ? `"${descripcionSku}" (traducción al español: "${traduccion}")`
+    : `"${descripcionSku}"`;
 
   const capitulosDescartados: string[] = [];
   let ultimoResultado = sinResultado("No se pudo clasificar este producto.");
 
   for (let intento = 1; intento <= MAX_INTENTOS_CAPITULO; intento++) {
-    const capitulos = await identificarCapitulos(descripcionSku, capitulosDescartados);
+    const capitulos = await identificarCapitulos(descripcionParaPrompt, capitulosDescartados);
     if (capitulos.length === 0) {
       ultimoResultado = sinResultado(
         capitulosDescartados.length > 0
@@ -288,7 +305,7 @@ export async function clasificarDescripcionNcm(descripcionSku: string): Promise<
     }
 
     const candidatasCapitulo = filtrarPorCapitulos(capitulos);
-    const candidatas = rankearPorDescripcion(candidatasCapitulo, descripcionSku, 200);
+    const candidatas = rankearPorDescripcion(candidatasCapitulo, descripcionParaRanking, 200);
 
     if (candidatas.length === 0) {
       ultimoResultado = sinResultado(`No se encontraron posiciones NCM en el capítulo ${capitulos.join("/")} del nomenclador embebido.`);
@@ -296,7 +313,7 @@ export async function clasificarDescripcionNcm(descripcionSku: string): Promise<
       continue;
     }
 
-    const resultado = await elegirNcmEntreCandidatas(descripcionSku, capitulos, candidatas);
+    const resultado = await elegirNcmEntreCandidatas(descripcionParaPrompt, capitulos, candidatas);
     ultimoResultado = resultado;
 
     if (resultado.estado !== "no_encontrado") {

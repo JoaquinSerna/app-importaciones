@@ -30,6 +30,8 @@ import type { NcmArancel, NcmOrigen, ParametrosGlobales, TipoContenedor, TipoImp
 
 interface ItemForm {
   descripcion: string;
+  /** Traducción al español (si viene de la proforma) — clave para que el clasificador matchee bien contra el nomenclador de AFIP, que está en español. */
+  descripcionEs?: string;
   cantidad: string;
   precioUnitarioFobUsd: string;
 }
@@ -128,7 +130,9 @@ export function SimuladorForm({
     const conDescripcion = itemsActuales.filter((it) => it.descripcion.trim());
     if (conDescripcion.length === 0) return;
     startClasificacion(async () => {
-      const r = await clasificarItemsSimulador(itemsActuales.map((it) => ({ descripcion: it.descripcion })));
+      const r = await clasificarItemsSimulador(
+        itemsActuales.map((it) => ({ descripcion: it.descripcion, descripcionEs: it.descripcionEs }))
+      );
       if (r.error) {
         toast({ title: "No se pudo clasificar los NCM", description: r.error, variant: "destructive" });
         return;
@@ -173,6 +177,7 @@ export function SimuladorForm({
       }
       const nuevosItems: ItemForm[] = r.items.map((it) => ({
         descripcion: it.descripcion,
+        descripcionEs: it.descripcionEs,
         cantidad: String(it.cantidad),
         precioUnitarioFobUsd: String(it.precioUnitarioFobUsd),
       }));
@@ -272,6 +277,7 @@ export function SimuladorForm({
           const confirmado = confirmadosPorIndex[i];
           return {
             descripcion: it.descripcion.trim(),
+            descripcionEs: it.descripcionEs,
             cantidad: parseFloat(it.cantidad) || 0,
             precioUnitarioFobUsd: parseFloat(it.precioUnitarioFobUsd) || 0,
             ncmCodigo: confirmado?.ncmCodigo ?? null,

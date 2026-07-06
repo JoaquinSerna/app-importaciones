@@ -78,7 +78,7 @@ export interface ClasificacionItemSimulador {
 }
 
 export async function clasificarItemsSimulador(
-  items: { descripcion: string }[]
+  items: { descripcion: string; descripcionEs?: string }[]
 ): Promise<{ resultados?: ClasificacionItemSimulador[]; error?: string }> {
   const resultados: ClasificacionItemSimulador[] = [];
 
@@ -100,7 +100,7 @@ export async function clasificarItemsSimulador(
       continue;
     }
     try {
-      const c = await clasificarDescripcionNcm(descripcion);
+      const c = await clasificarDescripcionNcm(descripcion, items[i].descripcionEs);
       resultados.push({
         index: i,
         ncmPropuesto: c.ncm_propuesto,
@@ -145,6 +145,7 @@ export async function buscarDiePorNcm(codigo: string): Promise<PosicionNcm | nul
 
 export interface ItemCarpetaInput {
   descripcion: string;
+  descripcionEs?: string;
   cantidad: number;
   precioUnitarioFobUsd: number;
   /** null = el ítem quedó sin clasificar/confirmar; se usa el arancel default provisorio. */
@@ -359,6 +360,7 @@ export async function crearCarpetaDesdeSimulacion(formData: FormData) {
     input.items.map((it, i) => ({
       carpeta_id: carpeta.id,
       descripcion: it.descripcion,
+      descripcion_es: it.descripcionEs?.trim() || null,
       cantidad: it.cantidad,
       precio_unitario_fob_usd: it.precioUnitarioFobUsd,
       ncm_id: ncmIdsPorItem[i],
